@@ -10,20 +10,32 @@ Engine.
 On steep terrain the reflectance of a pixel depends on how directly the sun lights it. That
 illumination changes between acquisitions with the season, with orbit drift (Landsat 5 and 7) and
 with each sensor switch, so a vegetation index can show greening, browning or a break that comes
-from geometry, not from the vegetation. topocorr computes the illumination history of every pixel
-from the DEM and each image's sun angles. It will:
+from geometry, not from the vegetation. topocorr computes the illumination of every pixel and
+acquisition from the DEM and the image's sun angles, and:
 
-- flag cast shadow, self-shadow, low illumination and very steep slopes;
-- apply the standard corrections (cosine, C, SCS+C);
-- estimate how much of an observed trend or break the illumination history alone predicts,
-  with a correction fitted once for the whole stack.
+- flags cast shadow, self-shadow, low illumination and very steep slopes;
+- applies the standard corrections (cosine, C, SCS+C), fitted image by image;
+- will estimate how much of an observed trend or break the illumination history alone predicts,
+  with a correction fitted once for the whole stack (in development).
+
+```python
+import ee
+import topocorr
+
+ee.Initialize(project="my-project")
+aoi = ee.Geometry.Rectangle([72.44, 35.41, 72.71, 35.64])  # upper Swat, Pakistan
+landsat = topocorr.collection("landsat", aoi, "2013-01-01", "2026-01-01", max_cloud=30)
+forest = ee.Image("ESA/WorldCover/v200/2021").eq(10)
+corrected = topocorr.correct(landsat, method="scsc", region=aoi, fit_mask=forest)
+flags = topocorr.masks(landsat)  # cos_i, cast_shadow, self_shadow, low_illumination, steep
+```
 
 Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default DEM: Copernicus GLO-30.
 
 ## Status
 
-In development; no release yet. The first release (0.1) will provide `collection`, `masks`,
-`correct`, `fit`, `diagnose` and `compare`.
+In development; no release yet. Available: `collection`, `masks` and `correct` (cosine, C,
+SCS+C). The first release (0.1) will add `fit`, `diagnose` and `compare`.
 
 ## Installation
 
