@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "topocorr"
+dynamic = ["version"]
+description = "Terrain illumination correction and illumination-artefact tests for Landsat and Sentinel-2 time series in Google Earth Engine."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Kaleem Mehmood", email = "kaleemmehmood73@gmail.com" }]
+maintainers = [{ name = "Kaleem Mehmood", email = "kaleemmehmood73@gmail.com" }]
+keywords = [
+    "remote sensing",
+    "earth observation",
+    "topographic correction",
+    "terrain illumination",
+    "landsat",
+    "sentinel-2",
+    "google earth engine",
+    "time series",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Typing :: Typed",
+]
+dependencies = ["numpy>=1.26", "earthengine-api>=1.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-cov>=5"]
+dev = ["topocorr[test]", "ruff>=0.17", "pre-commit>=4", "build>=1.2"]
+
+[project.urls]
+Source = "https://github.com/kmkamilkhel/topocorr"
+Issues = "https://github.com/kmkamilkhel/topocorr/issues"
+Changelog = "https://github.com/kmkamilkhel/topocorr/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/topocorr/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+# Leading slashes anchor the patterns at the root.
+include = [
+    "/src/topocorr",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/CITATION.cff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/topocorr"]
+
+[tool.pytest.ini_options]
+testpaths = ["src", "tests"]
+addopts = "-ra --strict-markers --doctest-modules"
+filterwarnings = ["error"]
+markers = ["ee: needs Google Earth Engine credentials (skipped without them)"]
+
+[tool.coverage.run]
+source = ["topocorr"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+".github/*" = ["D"]

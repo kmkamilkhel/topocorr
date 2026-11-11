@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in topocorr does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please search existing issues first.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the problem, including the full error message if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal example
+      description: The shortest code that shows the problem, with the collection, dates and area of interest.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: topocorr-version
+    attributes:
+      label: topocorr version
+      placeholder: "python -c \"import topocorr; print(topocorr.__version__)\""
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Python version, install method, and the earthengine-api version.
+    validations:
+      required: true

@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a correction method, sensor, diagnostic or improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The analysis you have in mind, and why current topocorr functions do not cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How the function or option could look (name, arguments, an example call).
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Papers that describe the method or show the expected result.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Correction method
+        - Sensor or collection
+        - Artefact diagnostics
+        - Terrain and masks
+        - Documentation
+        - Other
+    validations:
+      required: true

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tests and coverage
+.pytest_cache/
+.coverage
+coverage.xml
+coverage.json
+htmlcov/
+result_images/
+
+# Tools
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Docs
+site/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

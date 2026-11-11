@@ -1,0 +1,14 @@
+name: topocorr-dev
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - numpy
+  - earthengine-api
+  - pytest
+  - pytest-cov
+  - ruff
+  - pre-commit
+  - python-build
+  - hatchling
+  - pip
