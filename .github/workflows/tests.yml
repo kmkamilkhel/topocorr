@@ -60,8 +60,40 @@ jobs:
           total=$(coverage report --format=total)
           echo "Coverage total: ${total}%"
           echo "### Coverage (${{ matrix.os }}, Python ${{ matrix.python-version }}): ${total}%" >> "$GITHUB_STEP_SUMMARY"
-      - name: Check coverage thresholds (80 % overall, 90 % per module)
+      - name: Check coverage thresholds of the offline modules (80 % overall, 90 % per module)
         run: |
+          coverage json -o coverage.json
+          python .github/scripts/check_coverage.py coverage.json --offline
+
+  test-ee:
+    # Runs once the repository variables EE_PROJECT, EE_WIF_PROVIDER and EE_SERVICE_ACCOUNT exist
+    # (Workload Identity Federation, no stored key); never for pull requests from forks.
+    name: test (Earth Engine)
+    if: >-
+      vars.EE_WIF_PROVIDER != '' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.EE_WIF_PROVIDER }}
+          service_account: ${{ vars.EE_SERVICE_ACCOUNT }}
+      - name: Install package
+        run: pip install -e ".[test]"
+      - name: Run all tests, Earth Engine included, with the full coverage check
+        env:
+          EE_PROJECT: ${{ vars.EE_PROJECT }}
+        run: |
+          pytest --cov --cov-report=term-missing
           coverage json -o coverage.json
           python .github/scripts/check_coverage.py coverage.json
 
