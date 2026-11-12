@@ -69,13 +69,20 @@ uses [Semantic Versioning](https://semver.org/).
   negative. `stack.sun_sides()` counts the images per side.
 - `diagnose()` gives the same warning for such a model and records it in the property
   `tc_sun_both_sides` (1, else 0); its numbers are unchanged.
-- `diagnose()` estimates the artefact as the observed trend minus the trend of the
+- `diagnose()` total illumination effect: the observed trend minus the trend of the
   illumination-corrected series (each band divided by its illumination factor F), on the same
-  observations, in Earth Engine and in `_reference.diagnose_pixel`. Before, it took the trend of a
-  series predicted from one constant flat reflectance per pixel, which misses that the
-  illumination effect scales with a changing reflectance level: on synthetic data with known truth
-  (validation test 1, real Kalam and Ghandruk geometry) the NIRv share was recovered within 0.1 for only 35-43 %
-  of Kalam pixels, against 87-97 % now (NDVI: 88-93 % before, 92-96 % now).
+  observations, in Earth Engine and in `_reference.diagnose_pixel`. The trend of F times one
+  constant flat reflectance (now the drift artefact, below) misses that the illumination effect
+  scales with a changing reflectance level: on synthetic data with known truth (validation test 1,
+  real Kalam and Ghandruk geometry) it recovered the NIRv share against flat ground within 0.1 for
+  only 35-43 % of Kalam pixels, against 87-97 % for the difference of trends.
+- `diagnose()` reports two illumination parts of the observed trend: the drift artefact
+  (`drift_trend`, `drift_share`: the trend of F times the pixel's constant flat reflectance, the
+  trend that the changing illumination itself causes) and the total illumination effect
+  (`illumination_trend`, `illumination_share`: observed minus illumination-corrected trend), with
+  `scaling_trend` = total − drift (a real trend scaled by the pixel's mean illumination). The risk
+  class and the share bracket use the drift share. Bands `artefact_trend` and `artefact_share` are
+  replaced by these.
 - The share bracket (`share_low`, `share_high`) uses c ± `BRACKET_SE` (3.6) curve standard errors
   instead of ± 2: the curve's standard error understates how much c depends on the sampled pixels
   (between-sample SD about 1.5 times the standard error, `BETWEEN_SAMPLE_RATIO`).

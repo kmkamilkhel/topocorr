@@ -17,8 +17,10 @@ acquisition from the DEM and the image's sun angles, and:
 - applies the standard corrections (cosine, C, SCS+C), fitted image by image;
 - fits a stack model once per site: the C coefficient as a smooth function of solar zenith, per
   band and stratum (land cover x slope class), so no image gets its own noisy coefficient;
-- estimates how much of an observed index trend is caused by the illumination history: the
-  difference between the trends of the raw and the illumination-corrected series (`diagnose`).
+- splits an observed index trend into its illumination parts (`diagnose`): the drift artefact,
+  the trend that the changing illumination itself creates (orbit drift, sensor switches), and the
+  total illumination effect, the difference between the raw and the illumination-corrected trend,
+  which also includes a real trend scaled by the pixel's mean illumination.
 
 ```python
 import ee
@@ -43,7 +45,7 @@ flags = topocorr.masks(oli)  # cos_i, cast_shadow, self_shadow, low_illumination
 # Ratio indices only from bands corrected together: ndvi_mixed = 1 where nir and red were not
 ndvi = topocorr.normalized_difference(stack_corrected, "nir", "red", "ndvi")
 
-# Is the NDVI trend real or illumination? Trends, artefact share and risk class per pixel
+# Is the NDVI trend real or illumination? Drift artefact, total effect and risk class per pixel
 risk = topocorr.diagnose(oli, model, index="ndvi")
 ```
 

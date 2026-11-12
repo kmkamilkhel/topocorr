@@ -114,12 +114,13 @@ def test_diagnose_matches_the_reference(setup):
             c[name] = model.c(name, int(code[i, j]), ZENITH)
         exp = ref.diagnose_pixel(TIMES, bands, ci, ZENITH, c, usable=usable)
         assert got["observed_trend"][i, j] == pytest.approx(exp["observed_trend"], abs=2e-4)
-        assert got["artefact_trend"][i, j] == pytest.approx(exp["artefact_trend"], abs=2e-4)
+        assert got["drift_trend"][i, j] == pytest.approx(exp["drift_trend"], abs=2e-4)
+        assert got["illumination_trend"][i, j] == pytest.approx(exp["illumination_trend"], abs=2e-4)
         assert got["geometry_trend"][i, j] == pytest.approx(exp["geometry_trend"], abs=2e-4)
         assert got["n_obs"][i, j] == usable.sum()
         checked += 1
     assert checked > 0.8 * slope.size
-    share = got["artefact_share"]
+    share = got["drift_share"]
     lo, hi = got["share_low"], got["share_high"]
     ok = np.isfinite(share) & (np.abs(got["observed_trend"]) > 0.001)
     assert np.all(lo[ok] <= share[ok] + 1e-6) and np.all(share[ok] <= hi[ok] + 1e-6)
@@ -137,7 +138,8 @@ def test_flat_ground_has_no_artefact(setup):
     flat = ee.Image.constant(1500.0).rename("elevation").reproject(syn.ee_projection())
     out = topocorr.diagnose(_stack(flat), model, dem=flat, min_obs=12)
     d = syn.fetch(out, 16, margin=1)
-    np.testing.assert_allclose(d["artefact_trend"][IN], 0.0, atol=1e-6)
+    np.testing.assert_allclose(d["drift_trend"][IN], 0.0, atol=1e-6)
+    np.testing.assert_allclose(d["illumination_trend"][IN], 0.0, atol=1e-6)
     # The sun itself still drifts: on flat ground cos i = cos θz, whose trend is the geometry trend.
     cos_z = np.cos(np.radians(ZENITH))
     expected = ref.theil_sen(TIMES, ref.deseasonalise(TIMES, cos_z))
@@ -175,9 +177,9 @@ def test_wide_bracket_never_removes_central_observations(setup):
             curves[code] = dataclasses.replace(curve, cov=cov)
     d0 = syn.fetch(topocorr.diagnose(images, model, dem=elev, min_obs=12), N, margin=1)
     d1 = syn.fetch(topocorr.diagnose(images, wide, dem=elev, min_obs=12), N, margin=1)
-    for band in ("observed_trend", "artefact_trend", "n_obs"):
+    for band in ("observed_trend", "drift_trend", "illumination_trend", "n_obs"):
         np.testing.assert_allclose(d1[band][IN], d0[band][IN], atol=1e-7, equal_nan=True)
-    share, risk = d1["artefact_share"][IN], d1["risk_class"][IN]
+    share, risk = d1["drift_share"][IN], d1["risk_class"][IN]
     assert np.all(risk[~np.isfinite(share)] == 0)  # no class without a defined share
     ok = np.isfinite(share)
     assert np.all(d1["share_low"][IN][ok] <= share[ok] + 1e-6)
