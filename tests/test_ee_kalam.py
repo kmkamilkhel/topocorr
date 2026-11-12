@@ -85,7 +85,7 @@ def _illumination_check(kalam, scene_id):
 
     scene = _scene("L8", scene_id, kalam)
     forest = ee.Image("ESA/WorldCover/v200/2021").select("Map").eq(10)
-    corrected = topocorr.correct(scene, method="scsc", region=kalam, fit_mask=forest)
+    corrected = topocorr.correct(scene, method="scsc", region=kalam)  # tree cover by default
     usable = corrected.select("tc_flag").bitwiseAnd(topocorr.flags.EXCLUDED).eq(0)
 
     def r(image):

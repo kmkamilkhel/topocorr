@@ -132,6 +132,7 @@ def test_dem_sources():
         ({"method": "c", "steep": 95}, ValueError, "steep"),
         ({"method": "c", "min_slope": 90}, ValueError, "min_slope"),
         ({"method": "c", "sample_size": 50, "min_pixels": 100}, ValueError, "sample_size"),
+        ({"method": "c", "fit_mask": "forest"}, ValueError, "fit_mask"),
     ],
 )
 def test_correct_checks_arguments(kwargs, error, match):

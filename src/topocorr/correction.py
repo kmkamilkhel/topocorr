@@ -27,8 +27,13 @@ from .terrain import TERRAIN_SCALE, dem_name, terrain
 
 METHODS = ("cosine", "c", "scsc")
 """Methods available without a fitted stack model."""
-MODEL_METHODS = ("scsc-stack", "ic")
+MODEL_METHODS = ("scsc-stack", "se-stack")
 """Methods that need a model from ``topocorr.fit`` (not available yet)."""
+
+WORLDCOVER = "ESA/WorldCover/v200/2021"
+"""ESA WorldCover 10 m, 2021 (v200): the land cover used by ``fit_mask="worldcover-trees"``."""
+FIT_MASKS = {"worldcover-trees": 10}
+"""Named fit masks: WorldCover class kept for the fit."""
 
 _DEG = math.pi / 180.0
 
@@ -44,7 +49,7 @@ def correct(
     sample_size: int = 5000,
     min_pixels: int = 100,
     region: ee.Geometry | None = None,
-    fit_mask: ee.Image | None = None,
+    fit_mask: str | ee.Image | None = "worldcover-trees",
     seed: int = 0,
 ) -> ee.Image | ee.ImageCollection:
     """Correct the illumination of each image.
@@ -70,12 +75,14 @@ def correct(
         Fewest usable pixels for a fit.
     region : ee.Geometry, optional
         Area to sample for the fit; by default the image footprint.
-    fit_mask : ee.Image, optional
-        Only pixels where this image is non-zero are used to fit c, for example one land cover
-        (``ee.Image("ESA/WorldCover/v200/2021").eq(10)`` for tree cover). Covers of different
+    fit_mask : str, ee.Image or None
+        Pixels used to fit c. The default ``"worldcover-trees"`` fits tree cover only (ESA
+        WorldCover 2021, class 10; the 2021 map is also used for older scenes). An ``ee.Image``
+        fits the pixels where it is non-zero; ``None`` fits all pixels. Covers of different
         brightness that sit on different aspects (dark forest on shaded slopes, bright grass on
         sunlit ones) bias a fit over all pixels, often to c < 0. The correction is still applied
-        to every pixel.
+        to every pixel. Ignored by ``"cosine"``. The stack model (``topocorr.fit``) fits land
+        cover strata instead.
     seed : int
         Random seed of the sample.
 
@@ -102,6 +109,10 @@ def correct(
         raise ValueError("min_slope must be between 0 and 90 degrees")
     if int(sample_size) < int(min_pixels) or int(min_pixels) < 2:
         raise ValueError("sample_size must be at least min_pixels, and min_pixels at least 2")
+    if isinstance(fit_mask, str) and fit_mask not in FIT_MASKS:
+        raise ValueError(
+            f"unknown fit_mask {fit_mask!r}; use {', '.join(FIT_MASKS)}, an ee.Image or None"
+        )
 
     def one(image: ee.Image) -> ee.Image:
         return _correct_image(
@@ -132,7 +143,7 @@ def _correct_image(
     sample_size: int,
     min_pixels: int,
     region: ee.Geometry | None,
-    fit_mask: ee.Image | None,
+    fit_mask: str | ee.Image | None,
     seed: int,
 ) -> ee.Image:
     zenith = ee.Number(image.get("tc_sun_zenith"))
@@ -152,8 +163,9 @@ def _correct_image(
         no_fit = ee.Number(0)
     else:
         usable = excluded.Not().And(ter.select("slope").gte(min_slope))
-        if fit_mask is not None:
-            usable = usable.And(ee.Image(fit_mask).select(0).neq(0))
+        mask = _fit_mask_image(fit_mask)
+        if mask is not None:
+            usable = usable.And(mask)
         samples = (
             reflectance.addBands(ci)
             .updateMask(usable)
@@ -200,3 +212,12 @@ def _correct_image(
         .addBands(flag.rename("tc_flag"))
         .set(props)
     )
+
+
+def _fit_mask_image(fit_mask: str | ee.Image | None) -> ee.Image | None:
+    """1 where a pixel may be used for the fit, or None for all pixels."""
+    if fit_mask is None:
+        return None
+    if isinstance(fit_mask, str):
+        return ee.Image(WORLDCOVER).select("Map").eq(FIT_MASKS[fit_mask])
+    return ee.Image(fit_mask).select(0).neq(0)
