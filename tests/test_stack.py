@@ -230,3 +230,11 @@ def test_diagnose_warns_and_records_when_the_sun_is_on_both_sides():
         im["azimuth"] = 60.0
     with pytest.warns(UserWarning, match="tc_sun_both_sides = 1"):
         assert _warn_sun_both_sides({"TM/ETM+": model, "OLI": other}) == 1
+
+
+def test_share_bracket_includes_the_between_sample_spread():
+    from topocorr import artefact
+
+    r = artefact.BETWEEN_SAMPLE_RATIO
+    assert artefact.BRACKET_SE == pytest.approx(2 * np.sqrt(1 + r * r))
+    assert artefact.BRACKET_SE > 2  # wider than the curve's own +/- 2 standard errors

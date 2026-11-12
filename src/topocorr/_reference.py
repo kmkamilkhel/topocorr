@@ -329,12 +329,13 @@ def diagnose_pixel(
     trend_threshold: float = 0.001,
     usable: np.ndarray | None = None,
 ) -> dict[str, float]:
-    """Observed and illumination-predicted index trends of one pixel, as topocorr.diagnose does.
+    """Observed and illumination-caused index trends of one pixel, as topocorr.diagnose does.
 
     ``bands`` are the pixel's reflectance series and ``c[band]`` the model's c per acquisition.
-    The flat-surface reflectance is the median of ρ / F over the series; the predicted series is
-    the index of F · ρ_flat. Both series are deseasonalised with the same harmonics, and their
-    Theil–Sen slopes (per year) give the artefact share = predicted / observed trend.
+    Each band is divided by its illumination factor F (the series as it would be on flat ground);
+    the observed and this corrected index series are deseasonalised with the same harmonics, and
+    the artefact trend is the observed minus the corrected Theil–Sen slope (per year), on the same
+    observations. The artefact share is artefact / observed trend.
     Acquisitions where ``usable`` is False (by default: self-shadow, cos i <= 0) are left out,
     as topocorr.diagnose leaves out flagged pixels.
     """
@@ -346,11 +347,10 @@ def diagnose_pixel(
     bands = {b: np.asarray(bands[b], dtype="float64")[keep] for b in names}
     c = {b: np.broadcast_to(np.asarray(c[b], dtype="float64"), keep.shape)[keep] for b in names}
     factor = {b: illumination_factor(cos_incidence, zenith, c[b]) for b in names}
-    flat = {b: float(np.median(np.asarray(bands[b]) / factor[b])) for b in names}
     observed = index(index_name, {b: bands[b] for b in names})
-    predicted = index(index_name, {b: factor[b] * flat[b] for b in names})
+    corrected = index(index_name, {b: bands[b] / factor[b] for b in names})
     obs_trend = theil_sen(years, deseasonalise(years, observed, harmonics))
-    art_trend = theil_sen(years, deseasonalise(years, predicted, harmonics))
+    art_trend = obs_trend - theil_sen(years, deseasonalise(years, corrected, harmonics))
     geo_trend = theil_sen(years, deseasonalise(years, cos_incidence, harmonics))
     share = art_trend / obs_trend if obs_trend != 0 else float("nan")
     return {
