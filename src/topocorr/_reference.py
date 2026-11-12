@@ -329,13 +329,20 @@ def diagnose_pixel(
     trend_threshold: float = 0.001,
     usable: np.ndarray | None = None,
 ) -> dict[str, float]:
-    """Observed and illumination-caused index trends of one pixel, as topocorr.diagnose does.
+    """Observed trend of one pixel and the two illumination parts of it, as topocorr.diagnose does.
 
-    ``bands`` are the pixel's reflectance series and ``c[band]`` the model's c per acquisition.
-    Each band is divided by its illumination factor F (the series as it would be on flat ground);
-    the observed and this corrected index series are deseasonalised with the same harmonics, and
-    the artefact trend is the observed minus the corrected Theil–Sen slope (per year), on the same
-    observations. The artefact share is artefact / observed trend.
+    ``bands`` are the pixel's reflectance series and ``c[band]`` the model's c per acquisition;
+    F = (cos i + c) / (cos θz + c) per band. All series are deseasonalised with the same harmonics
+    and their Theil–Sen slopes are per year, on the same observations:
+
+    * drift artefact (``drift_trend``): the trend that the changing illumination itself causes, the
+      trend of the index of F · ρ_flat with one constant flat reflectance ρ_flat = median(ρ / F);
+      it can create or flip a trend with no vegetation change;
+    * total illumination effect (``illumination_trend``): the observed trend minus the trend of
+      the illumination-corrected series ρ / F; it also includes the scaling of a real trend by the
+      pixel's mean illumination (``scaling_trend`` = total − drift).
+
+    Shares are these trends divided by the observed trend; the risk class uses the drift share.
     Acquisitions where ``usable`` is False (by default: self-shadow, cos i <= 0) are left out,
     as topocorr.diagnose leaves out flagged pixels.
     """
@@ -347,16 +354,25 @@ def diagnose_pixel(
     bands = {b: np.asarray(bands[b], dtype="float64")[keep] for b in names}
     c = {b: np.broadcast_to(np.asarray(c[b], dtype="float64"), keep.shape)[keep] for b in names}
     factor = {b: illumination_factor(cos_incidence, zenith, c[b]) for b in names}
-    observed = index(index_name, {b: bands[b] for b in names})
-    corrected = index(index_name, {b: bands[b] / factor[b] for b in names})
-    obs_trend = theil_sen(years, deseasonalise(years, observed, harmonics))
-    art_trend = obs_trend - theil_sen(years, deseasonalise(years, corrected, harmonics))
-    geo_trend = theil_sen(years, deseasonalise(years, cos_incidence, harmonics))
-    share = art_trend / obs_trend if obs_trend != 0 else float("nan")
+    flat = {b: float(np.median(bands[b] / factor[b])) for b in names}
+
+    def trend(values):
+        return theil_sen(years, deseasonalise(years, values, harmonics))
+
+    obs_trend = trend(index(index_name, bands))
+    drift = trend(index(index_name, {b: factor[b] * flat[b] for b in names}))
+    total = obs_trend - trend(index(index_name, {b: bands[b] / factor[b] for b in names}))
+
+    def share(x):
+        return x / obs_trend if obs_trend != 0 else float("nan")
+
     return {
         "observed_trend": obs_trend,
-        "artefact_trend": art_trend,
-        "geometry_trend": geo_trend,
-        "artefact_share": share,
-        "risk_class": risk_class(share, obs_trend, trend_threshold),
+        "drift_trend": drift,
+        "illumination_trend": total,
+        "scaling_trend": total - drift,
+        "geometry_trend": trend(cos_incidence),
+        "drift_share": share(drift),
+        "illumination_share": share(total),
+        "risk_class": risk_class(share(drift), obs_trend, trend_threshold),
     }

@@ -2,27 +2,29 @@
 
 For every pixel and acquisition the stack model gives how bright the pixel is relative to a flat
 surface under the same sun, ``F_b = (cos i + c_b(θz)) / (cos θz + c_b(θz))`` per band, with c from
-the pixel's stratum. Dividing each band by F gives the series as it would be on flat ground. The
-observed and this corrected index series are deseasonalised with the same harmonics, on the same
-observations, and their Theil–Sen slopes give
+the pixel's stratum. All series are deseasonalised with the same harmonics, on the same
+observations, and their Theil–Sen slopes (index units per year) give two illumination parts of the
+observed trend (``observed_trend``):
 
-* ``observed_trend``, and ``artefact_trend`` = observed minus corrected trend (index units per
-  year): the part of the trend that the illumination history causes,
-* ``artefact_share`` = artefact / observed trend, and
-* ``risk_class``: 1 low (|share| < 0.2), 2 medium (≤ 0.5), 3 high (> 0.5), 4 no trend (|observed
-  trend| below ``trend_threshold``), 0 not assessable (too few observations, a band of the index
-  without a usable curve in the pixel's stratum, or no defined share).
+* ``drift_trend``, the **drift artefact**: the trend that the changing illumination itself causes,
+  the trend of the index of F_b times the pixel's constant flat reflectance (median of ρ / F over
+  the series). It can create or flip a trend with no vegetation change (orbit drift, sensor
+  switches, a changing season of the clear images);
+* ``illumination_trend``, the **total illumination effect**: the observed trend minus the trend
+  of the illumination-corrected series ρ / F. It also includes ``scaling_trend`` = total − drift:
+  a real trend seen larger or smaller than on flat ground because of the pixel's mean
+  illumination.
+
+``drift_share`` and ``illumination_share`` divide these by the observed trend. ``risk_class`` uses
+the drift share: 1 low (|share| < 0.2), 2 medium (≤ 0.5), 3 high (> 0.5), 4 no trend (|observed
+trend| below ``trend_threshold``), 0 not assessable (too few observations, a band of the index
+without a usable curve in the pixel's stratum, or no defined share).
 
 ``geometry_trend`` is the Theil–Sen slope of the deseasonalised cos i. The interval ``share_low`` to
-``share_high`` repeats the computation with c ± :data:`BRACKET_SE` standard errors of the stage-2
-curve and spans those two results and the central one. The bracket is wider than ± 2 standard
-errors because the curve's standard error understates how much c depends on which pixels were
-sampled (see :data:`BETWEEN_SAMPLE_RATIO`).
-
-The artefact estimate is the difference of two trends rather than the trend of a series predicted
-from one constant flat reflectance per pixel: under a vegetation trend the illumination effect
-scales with the changing reflectance level, which a constant flat reflectance misses (most for
-indices that are not ratios, such as NIRv and EVI).
+``share_high`` brackets the drift share: the drift artefact repeated with c ± :data:`BRACKET_SE`
+standard errors of the stage-2 curve, spanning those two results and the central one. The bracket
+is wider than ± 2 standard errors because the curve's standard error understates how much c
+depends on which pixels were sampled (see :data:`BETWEEN_SAMPLE_RATIO`).
 The NumPy twin of the per-pixel computation is :func:`topocorr._reference.diagnose_pixel`.
 """
 
@@ -46,11 +48,14 @@ _DEG = math.pi / 180.0
 _MS_PER_YEAR = 365.25 * 86400 * 1000.0
 OUTPUT_BANDS = (
     "observed_trend",
-    "artefact_trend",
+    "drift_trend",
+    "illumination_trend",
+    "scaling_trend",
     "geometry_trend",
-    "artefact_share",
+    "drift_share",
     "share_low",
     "share_high",
+    "illumination_share",
     "risk_class",
     "n_obs",
 )
@@ -142,7 +147,7 @@ def diagnose(
     trend_threshold: float = 0.001,
     shadow_search: int | None = None,
 ) -> ee.Image:
-    """Map how much of each pixel's index trend the illumination history causes.
+    """Map how much of each pixel's index trend comes from illumination (drift and total).
 
     Parameters
     ----------
@@ -191,7 +196,7 @@ def diagnose(
     harmonic_names = ["constant"] + [
         f"{f}{k}" for k in range(1, harmonics + 1) for f in ("cos", "sin")
     ]
-    series = ["obs", "corr", "corr_lo", "corr_hi", "cos_i"]
+    series = ["obs", "pred", "pred_lo", "pred_hi", "corr", "cos_i"]
 
     def geometry_of(image: ee.Image):
         """Terrain, masks, cos i and stratum of one image: computed once, used by every variant."""
@@ -237,25 +242,49 @@ def diagnose(
                 ee.Image.constant(w.sin()).rename(f"sin{k}"),
             ]
         bands = {b: image.select(b) for b in needed}
-        corrected = {}
-        for name, fac in (("corr", f), ("corr_lo", f_lo), ("corr_hi", f_hi)):
-            flat = {b: bands[b].divide(fac[b]) for b in needed}
-            corrected[name] = _index(index, flat).rename(name)
+        flat = []  # rho / F per band, for the central c and the bracket
+        for prefix, fac in (("flat_", f), ("flatlo_", f_lo), ("flathi_", f_hi)):
+            flat += [bands[b].divide(fac[b]).rename(f"{prefix}{b}") for b in needed]
+        corrected = _index(index, {b: bands[b].divide(f[b]) for b in needed}).rename("corr")
         stack = ee.Image.cat(
             [
                 ee.Image.constant(t).rename("t").toFloat(),
                 *terms,
                 _index(index, bands).rename("obs"),
                 ci.rename("cos_i"),
-                *corrected.values(),
+                corrected,
+                *flat,
+                *[f[b].rename(f"f_{b}") for b in needed],
+                *[f_lo[b].rename(f"flo_{b}") for b in needed],
+                *[f_hi[b].rename(f"fhi_{b}") for b in needed],
             ]
         ).toFloat()
         valid = usable.And(stack.select("obs").mask()).And(stack.select("corr").mask())
         for b in needed:  # every band of the index needs a usable curve
-            valid = valid.And(f[b].mask())
+            valid = valid.And(stack.select(f"f_{b}").mask()).And(stack.select(f"flat_{b}").mask())
         return stack.updateMask(valid)
 
-    full = images.map(per_image)
+    stacked = images.map(per_image)
+    flat_names = [f"{p}{b}" for p in ("flat_", "flatlo_", "flathi_") for b in needed]
+    flat_median = stacked.select(flat_names).median()
+
+    def with_prediction(img: ee.Image) -> ee.Image:
+        """Index of F times the pixel's constant flat reflectance: the drift artefact series."""
+        img = ee.Image(img)
+        pred = []
+        for name, prefix, flat_prefix in (
+            ("pred", "f_", "flat_"),
+            ("pred_lo", "flo_", "flatlo_"),
+            ("pred_hi", "fhi_", "flathi_"),
+        ):
+            b_pred = {
+                b: img.select(f"{prefix}{b}").multiply(flat_median.select(f"{flat_prefix}{b}"))
+                for b in needed
+            }
+            pred.append(_index(index, b_pred).rename(name))
+        return img.addBands(pred)
+
+    full = stacked.map(with_prediction)
     regression = full.select([*harmonic_names, *series]).reduce(
         ee.Reducer.linearRegression(len(harmonic_names), len(series))
     )
@@ -284,10 +313,11 @@ def diagnose(
     n_obs = full.select("obs").count().rename("n_obs")
 
     obs_t = trend.select("trend_obs")
-    art_t = obs_t.subtract(trend.select("trend_corr"))
-    share = art_t.divide(obs_t).rename("artefact_share")
-    lo = obs_t.subtract(trend.select("trend_corr_lo")).divide(obs_t)
-    hi = obs_t.subtract(trend.select("trend_corr_hi")).divide(obs_t)
+    drift_t = trend.select("trend_pred")
+    total_t = obs_t.subtract(trend.select("trend_corr"))
+    share = drift_t.divide(obs_t).rename("drift_share")
+    lo = trend.select("trend_pred_lo").divide(obs_t)
+    hi = trend.select("trend_pred_hi").divide(obs_t)
     # The bracket always contains the central value (the share need not be monotone in c).
     share_low = lo.min(hi).min(share).rename("share_low")
     share_high = lo.max(hi).max(share).rename("share_high")
@@ -307,11 +337,14 @@ def diagnose(
     return ee.Image.cat(
         [
             obs_t.rename("observed_trend"),
-            art_t.rename("artefact_trend"),
+            drift_t.rename("drift_trend"),
+            total_t.rename("illumination_trend"),
+            total_t.subtract(drift_t).rename("scaling_trend"),
             trend.select("trend_cos_i").rename("geometry_trend"),
             share,
             share_low,
             share_high,
+            total_t.divide(obs_t).rename("illumination_share"),
             risk,
             n_obs.toInt16(),
         ]
