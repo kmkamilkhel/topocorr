@@ -11,7 +11,7 @@ standard terrain corrections.
 """
 
 from . import flags
-from .correction import correct
+from .correction import correct, normalized_difference
 from .masking import masks
 from .model import fit
 from .sensors import collection
@@ -28,4 +28,5 @@ __all__ = [
     "flags",
     "load_model",
     "masks",
+    "normalized_difference",
 ]

@@ -253,3 +253,39 @@ def test_layers_do_not_depend_on_the_requested_scale():
     np.testing.assert_array_equal(flag_coarse & other, flag_fine & other)
     # hillShadow works on its own grid: cast-shadow edges may move by a pixel or two.
     assert np.mean((flag_coarse & CAST_SHADOW) == (flag_fine & CAST_SHADOW)) > 0.9
+
+
+def test_band_flags_and_mixed_ratio_index():
+    """Red cannot be fitted (falls with illumination), NIR can: NDVI mixes them, flagged."""
+    import topocorr
+    from topocorr.flags import BAND_BITS, EXCLUDED
+
+    m = list(M)
+    m[2] = -0.05  # red: m < 0, no usable fit, left unchanged
+    nb = list(NB)
+    nb[2] = 0.08  # keeps red positive
+    elev, image = _synthetic_image(N, m, nb)
+    region = syn.ee_grid_region(N)
+    out = topocorr.correct(image, method="scsc", dem=elev, region=region, fit_mask=None)
+    out = topocorr.normalized_difference(out, "nir", "red", "ndvi")
+    out = topocorr.normalized_difference(out, "nir", "swir1", "ndmi")
+    raw = topocorr.normalized_difference(image, "nir", "red", "ndvi")
+    cosine = topocorr.correct(image, method="cosine", dem=elev)
+    d = syn.fetch(
+        out.select(["tc_corrected", "tc_flag", "ndvi", "ndvi_mixed", "ndmi_mixed", "nir", "red"])
+        .addBands(raw.select(["ndvi_mixed"], ["raw_mixed"]))
+        .addBands(cosine.select(["tc_corrected"], ["cosine_corrected"])),
+        N,
+    )
+    done = d["tc_corrected"].astype(int)
+    kept = (d["tc_flag"].astype(int) & EXCLUDED) == 0
+    expected = sum(BAND_BITS.values()) - BAND_BITS["red"]
+    assert kept.mean() > 0.5
+    np.testing.assert_array_equal(done[kept], expected)
+    np.testing.assert_array_equal(done[~kept], 0)
+    np.testing.assert_array_equal(d["ndvi_mixed"][kept], 1)
+    np.testing.assert_array_equal(d["ndmi_mixed"], 0)
+    np.testing.assert_array_equal(d["raw_mixed"], 0)
+    np.testing.assert_array_equal(d["cosine_corrected"][kept], sum(BAND_BITS.values()))
+    ndvi = (d["nir"] - d["red"]) / (d["nir"] + d["red"])
+    np.testing.assert_allclose(d["ndvi"], ndvi, rtol=1e-5)

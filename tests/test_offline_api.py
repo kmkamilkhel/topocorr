@@ -174,3 +174,22 @@ def test_busy_earth_engine_requests_are_retried():
     with pytest.raises(ee.EEException, match="not found"):
         model._request(broken, wait=0)
     assert model._is_busy(ee.EEException("Quota exceeded")) and not model._is_busy(ValueError())
+
+
+def test_band_bits_and_mixed_pairs():
+    import numpy as np
+
+    from topocorr.flags import BAND_BITS, mixed
+
+    assert BAND_BITS == {"blue": 1, "green": 2, "red": 4, "nir": 8, "swir1": 16, "swir2": 32}
+    values = np.array([0, BAND_BITS["nir"], BAND_BITS["red"], BAND_BITS["nir"] | BAND_BITS["red"]])
+    np.testing.assert_array_equal(mixed(values, ["nir", "red"]), [False, True, True, False])
+    assert not mixed(63, ["nir", "red", "swir1"])
+    with pytest.raises(ValueError, match="unknown band"):
+        mixed(0, ["nir", "B8"])
+
+
+@pytest.mark.parametrize("bands", [("nir", "B4"), ("nir", "nir")])
+def test_normalized_difference_checks_bands(bands):
+    with pytest.raises(ValueError, match="two different bands"):
+        topocorr.normalized_difference(None, *bands)

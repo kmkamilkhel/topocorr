@@ -113,6 +113,10 @@ def test_stack_corrections_have_their_closed_form(model, stack_images, method):
     corrected &= (flag & (topocorr.flags.NO_FIT | topocorr.flags.NO_MODEL)) == 0
     slope = d["slope"][IN]
     assert corrected.mean() > 0.5
+    all_bands = sum(topocorr.flags.BAND_BITS.values())
+    np.testing.assert_array_equal(d["tc_corrected"][IN][corrected], all_bands)
+    excluded = (flag & topocorr.flags.EXCLUDED) != 0
+    np.testing.assert_array_equal(d["tc_corrected"][IN][excluded], 0)
     for b, band in enumerate(BANDS):
         if method == "scsc-stack":
             code = np.where(slope < 25, 11, np.where(slope < 40, 12, 13))

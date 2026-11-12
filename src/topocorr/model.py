@@ -27,6 +27,12 @@ WORLDCOVER = "ESA/WorldCover/v200/2021"
 WORLDCOVER_CLASSES = {10: "trees", 20: "shrub", 30: "grass", 40: "crop", 60: "bare", 100: "moss"}
 """WorldCover classes modelled by ``strata="worldcover"``. Snow and ice, water, built-up,
 wetland and mangrove are not modelled; their pixels are not corrected by the stack methods."""
+HANSEN = "UMD/hansen/global_forest_change_2025_v1_13"
+"""Hansen Global Forest Change v1.13: ``treecover2000`` and ``loss`` (any year 2001-2025)."""
+DENSITY_CLASSES = {10: (0, 30), 11: (30, 50), 12: (50, 70), 13: (70, 101)}
+"""``strata="worldcover-density"``: WorldCover tree cover split by Hansen tree cover in 2000 (%).
+Code 10 keeps tree pixels below 30 % (WorldCover 2021 trees that were sparse in 2000)."""
+DENSITY_NAMES = {10: "trees tc<30", 11: "trees tc30-50", 12: "trees tc50-70", 13: "trees tc>=70"}
 SLOPE_CLASSES = (5.0, 25.0, 40.0, 60.0)
 """Default slope class edges in degrees: 5-25, 25-40, 40-60. The first edge is the smallest
 slope used in the fit; pixels below it take the first class when corrected."""
@@ -52,12 +58,19 @@ def _strata_spec(strata: str | ee.Image | None) -> tuple[str, dict[str, str]]:
     if strata is None:
         return "none", {"1": "all"}
     if isinstance(strata, str):
-        if strata != "worldcover":
-            raise ValueError(f"unknown strata {strata!r}; use 'worldcover', None or an ee.Image")
-        return "worldcover", {str(k): v for k, v in WORLDCOVER_CLASSES.items()}
+        names = {str(k): v for k, v in WORLDCOVER_CLASSES.items()}
+        if strata == "worldcover":
+            return "worldcover", names
+        if strata == "worldcover-density":
+            names.update({str(k): v for k, v in DENSITY_NAMES.items()})
+            return "worldcover-density", names
+        raise ValueError(
+            f"unknown strata {strata!r}; use 'worldcover', 'worldcover-density', None "
+            "or an ee.Image"
+        )
     if isinstance(strata, ee.Image):
         return "image", {}
-    raise TypeError(f"strata must be 'worldcover', None or an ee.Image, not {type(strata)}")
+    raise TypeError(f"strata must be a strata name, None or an ee.Image, not {type(strata)}")
 
 
 def strata_image(
@@ -69,9 +82,11 @@ def strata_image(
 
     Parameters
     ----------
-    strata : "worldcover", None or ee.Image
-        Land cover: ESA WorldCover 2021 classes (:data:`WORLDCOVER_CLASSES`), one cover for all
-        pixels (``None``), or an integer image of the user's own classes (values above 0).
+    strata : "worldcover", "worldcover-density", None or ee.Image
+        Land cover: ESA WorldCover 2021 classes (:data:`WORLDCOVER_CLASSES`); the same with tree
+        cover split by canopy density (Hansen tree cover in **2000**, :data:`DENSITY_CLASSES`);
+        one cover for all pixels (``None``); or an integer image of the user's own classes
+        (values above 0).
     slope : ee.Image
         Slope in degrees.
     slope_classes : sequence of float
@@ -82,9 +97,16 @@ def strata_image(
     kind, _ = _strata_spec(strata)
     if kind == "none":
         cover = ee.Image.constant(1)
-    elif kind == "worldcover":
+    elif kind in ("worldcover", "worldcover-density"):
         keys = list(WORLDCOVER_CLASSES)
         cover = ee.Image(WORLDCOVER).select("Map").remap(keys, keys, 0)
+        if kind == "worldcover-density":
+            tc = ee.Image(HANSEN).select("treecover2000")
+            density = ee.Image.constant(10)
+            for code, (low, _) in DENSITY_CLASSES.items():
+                if code > 10:
+                    density = density.where(tc.gte(low), code)
+            cover = cover.where(cover.eq(10), density)
     else:
         user = ee.Image(strata).select(0).round()
         cover = user.where(user.lte(0), 0)
@@ -122,6 +144,9 @@ def _image_sums(
         .And(slope.lte(slope_classes[-1]))
         .And(stratum.gt(0))
     )
+    if isinstance(strata, str) and strata == "worldcover-density":
+        # Canopy density is from 2000: pixels with any recorded loss are left out of the fit.
+        usable = usable.And(ee.Image(HANSEN).select("loss").unmask(0).eq(0))
     reflectance = image.select(list(BANDS))
     columns = ee.Image.cat(
         [
@@ -198,8 +223,13 @@ def fit(
     dem : str or ee.Image
         DEM name, image asset id, or an elevation image in metres. Use the same DEM in
         :func:`topocorr.correct`.
-    strata : "worldcover", None or ee.Image
-        Land cover part of the strata (see :func:`strata_image`).
+    strata : "worldcover", "worldcover-density", None or ee.Image
+        Land cover part of the strata (see :func:`strata_image`). ``"worldcover-density"`` splits
+        tree cover by canopy density (Hansen tree cover in 2000: below 30, 30-50, 50-70 and at
+        least 70 %), because on mountain slopes canopy density often follows aspect (dense forest
+        on shaded slopes, open forest on sunlit ones) and a fit over all forest then learns
+        composition, not illumination. With it, pixels with any recorded Hansen forest loss
+        (2001 onward) are left out of the fit; they are still corrected.
     slope_classes : sequence of float
         Slope class edges in degrees (default 5-25, 25-40, 40-60).
     degree : int
@@ -364,8 +394,8 @@ def model_strata(model: StackModel) -> str | ee.Image | None:
     kind = model.settings["strata"]
     if kind == "none":
         return None
-    if kind == "worldcover":
-        return "worldcover"
+    if kind in ("worldcover", "worldcover-density"):
+        return kind
     if model.strata_image is not None:
         return model.strata_image
     return ee.Image(ee.deserializer.fromJSON(model.settings["strata_expression"]))

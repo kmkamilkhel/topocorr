@@ -10,9 +10,8 @@ With a stack model from :func:`topocorr.fit`, per stratum (land cover x slope cl
 
 ``scsc-stack``  SCS+C with ``c = c(θz)`` from the model, the same curve for every image
 ``se-stack``    statistical-empirical (Teillet et al. 1982), ρ − m_t (cos i − cos θz), with the
-                image's own slope m_t from the model's first stage (same sample and settings);
-                the reference is a horizontal surface, as for the other methods (Teillet et al.
-                used the scene mean of cos i)
+                image's own slope m_t from the model's first stage (same sample and settings),
+                referred to a horizontal surface (see below)
 
 For the C and SCS+C methods, ``c = n / m`` comes from a least-squares fit ``ρ = m cos i + n`` per
 band and image, on a random sample of unflagged pixels with slope of at least ``min_slope``.
@@ -22,6 +21,16 @@ unchanged, ``tc_fit_ok_<band>`` is 0 and every pixel of the image carries the "n
 
 Pixels in cast shadow, in self-shadow or on very steep slopes keep their input value. Pixels
 with low illumination are corrected and flagged.
+
+Every method adds the band ``tc_corrected``: bit i (:data:`topocorr.flags.BAND_BITS`) is set where
+band ``BANDS[i]`` was corrected. Bands can differ: a band whose fit is unusable (often red in
+winter forest) is left unchanged while the others are corrected. **Compute ratio indices (NDVI,
+NBR, ...) only from bands corrected together, or from raw bands; never from a mix.**
+:func:`normalized_difference` does this check and flags the pixels where it fails.
+
+The statistical-empirical method refers every image to a horizontal surface, ρ − m_t (cos i −
+cos θz). Teillet et al. (1982) used the scene mean of cos i instead; that mean changes from image
+to image (sun position, cloud mask), which would add a per-image offset to a time series.
 """
 
 from __future__ import annotations
@@ -179,6 +188,7 @@ def _correct_image(
     if method == "cosine":
         corrected = reflectance.multiply(ee.Image.constant(cos_z)).divide(ci)
         no_fit = ee.Number(0)
+        done = [ee.Image.constant(1)] * len(BANDS)
     else:
         usable = excluded.Not().And(ter.select("slope").gte(min_slope))
         mask = _fit_mask_image(fit_mask)
@@ -200,6 +210,7 @@ def _correct_image(
         enough = count.gte(min_pixels)
         all_ok = enough
         parts = []
+        done = []
         for band in BANDS:
             fit = ee.Dictionary(samples.reduceColumns(ee.Reducer.linearFit(), ["cos_i", band]))
             m = ee.Number(ee.Algorithms.If(enough, fit.get("scale"), 0))
@@ -217,6 +228,7 @@ def _correct_image(
             fitted = original.multiply(numerator.add(c)).divide(ci.add(c)).rename(band)
             # A band whose fit is not usable is returned unchanged.
             parts.append(ee.Image(ee.Algorithms.If(band_ok, fitted, original)))
+            done.append(ee.Image.constant(band_ok))
         corrected = ee.Image.cat(parts)
         no_fit = ee.Number(1).subtract(all_ok)
         props["tc_fit_ok"] = all_ok
@@ -228,8 +240,49 @@ def _correct_image(
         image.addBands(corrected.toFloat(), None, True)
         .addBands(ci)
         .addBands(flag.rename("tc_flag"))
+        .addBands(_corrected_bits(done, excluded))
         .set(props)
     )
+
+
+def _corrected_bits(done: list[ee.Image], excluded: ee.Image) -> ee.Image:
+    """Band ``tc_corrected``: bit i where band i was corrected (never on excluded pixels)."""
+    bits = ee.Image.constant(0)
+    for image, band in zip(done, BANDS, strict=True):
+        bits = bits.add(ee.Image(image).neq(0).multiply(_flags.BAND_BITS[band]))
+    return bits.where(excluded, 0).toUint8().rename("tc_corrected")
+
+
+def normalized_difference(
+    image: ee.Image | ee.ImageCollection, first: str, second: str, name: str = "nd"
+) -> ee.Image | ee.ImageCollection:
+    """``(first − second) / (first + second)`` and a flag of pixels that mix corrected and raw.
+
+    For an image from :func:`correct`, adds band ``name`` and band ``<name>_mixed``: 1 where one
+    of the two bands was corrected and the other was not (see ``tc_corrected``). Such values are
+    not comparable with their neighbours or through time; mask them, or compute the index from
+    the raw bands. For an image without ``tc_corrected`` (raw data), ``<name>_mixed`` is 0.
+
+    Examples
+    --------
+    ``ndvi = topocorr.normalized_difference(corrected, "nir", "red", "ndvi")``
+    """
+    if first not in BANDS or second not in BANDS or first == second:
+        raise ValueError(f"two different bands among {', '.join(BANDS)} are needed")
+    bits = _flags.BAND_BITS[first] | _flags.BAND_BITS[second]
+
+    def one(img: ee.Image) -> ee.Image:
+        img = ee.Image(img)
+        has = img.bandNames().contains("tc_corrected")
+        done = ee.Image(ee.Algorithms.If(has, img.select(["tc_corrected"]), ee.Image.constant(0)))
+        hit = done.bitwiseAnd(bits)
+        mixed = hit.neq(0).And(hit.neq(bits)).toUint8().rename(f"{name}_mixed")
+        index = img.normalizedDifference([first, second]).rename(name)
+        return img.addBands(index).addBands(mixed)
+
+    if isinstance(image, ee.ImageCollection):
+        return image.map(one)
+    return one(image)
 
 
 def _fit_mask_image(fit_mask: str | ee.Image | None) -> ee.Image | None:
@@ -317,6 +370,7 @@ def _correct_stack(
     no_fit = ee.Image.constant(0)
     no_model = stratum.eq(0)
     parts = []
+    done = []
 
     if method == "scsc-stack":
         numerator = ter.select("slope").multiply(_DEG).cos().multiply(cos_z)
@@ -332,6 +386,7 @@ def _correct_stack(
             original = reflectance.select(band)
             fitted = original.multiply(numerator.add(c)).divide(ci.add(c))
             parts.append(original.where(valid, fitted).rename(band))
+            done.append(valid)
             props[f"tc_c_{band}"] = ee.Dictionary(
                 {model.name(code): value for code, value in zip(codes, values, strict=True)}
             )
@@ -364,6 +419,7 @@ def _correct_stack(
             original = reflectance.select(band)
             fitted = original.subtract(m.multiply(ci.subtract(cos_z)))
             parts.append(original.where(valid, fitted).rename(band))
+            done.append(valid)
             props[f"tc_m_{band}"] = ee.Dictionary.fromLists(keys, ms)
 
     corrected = ee.Image.cat(parts).where(excluded, reflectance)
@@ -375,5 +431,6 @@ def _correct_stack(
         image.addBands(corrected.toFloat(), None, True)
         .addBands(ci)
         .addBands(flag.rename("tc_flag"))
+        .addBands(_corrected_bits(done, excluded))
         .set(props)
     )

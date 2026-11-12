@@ -11,6 +11,10 @@ the stack model does not cover; both keep their input value in those bands.
 
 from __future__ import annotations
 
+import numpy as np
+
+from .sensors import BANDS
+
 CAST_SHADOW = 1
 """Shadow cast by surrounding terrain (and not self-shadowed)."""
 SELF_SHADOW = 2
@@ -36,6 +40,38 @@ FLAGS = {
 
 EXCLUDED = CAST_SHADOW | SELF_SHADOW | STEEP
 """Flags whose pixels keep their input value."""
+
+
+BAND_BITS = {band: 1 << i for i, band in enumerate(BANDS)}
+"""Bits of the ``tc_corrected`` band: bit i is set where band ``BANDS[i]`` was corrected.
+
+Ratio indices (NDVI, NBR, ...) must be computed from bands corrected together, or from raw
+bands, never from a corrected band and an uncorrected one: the illumination term then no longer
+cancels and the index takes a spurious dependence on terrain. :func:`mixed` finds such pixels;
+:func:`topocorr.normalized_difference` flags them.
+"""
+
+
+def mixed(corrected, bands) -> np.ndarray | bool:
+    """Return True where some, but not all, of ``bands`` were corrected.
+
+    ``corrected`` is a ``tc_corrected`` value or array.
+
+    Examples
+    --------
+    >>> bool(mixed(BAND_BITS["nir"], ["nir", "red"]))  # NIR corrected, red not
+    True
+    >>> bool(mixed(BAND_BITS["nir"] | BAND_BITS["red"], ["nir", "red"]))
+    False
+    """
+    bits = 0
+    for band in bands:
+        if band not in BAND_BITS:
+            raise ValueError(f"unknown band {band!r}; bands: {', '.join(BANDS)}")
+        bits |= BAND_BITS[band]
+    hit = np.bitwise_and(np.asarray(corrected, dtype="int64"), bits)
+    out = (hit != 0) & (hit != bits)
+    return bool(out) if np.ndim(out) == 0 else out
 
 
 def decode(value: int) -> list[str]:
