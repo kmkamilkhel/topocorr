@@ -17,8 +17,8 @@ acquisition from the DEM and the image's sun angles, and:
 - applies the standard corrections (cosine, C, SCS+C), fitted image by image;
 - fits a stack model once per site: the C coefficient as a smooth function of solar zenith, per
   band and stratum (land cover x slope class), so no image gets its own noisy coefficient;
-- will estimate how much of an observed trend or break the illumination history alone predicts
-  (in development).
+- estimates how much of an observed index trend the illumination history alone predicts
+  (`diagnose`; break checks in development).
 
 ```python
 import ee
@@ -42,6 +42,9 @@ flags = topocorr.masks(oli)  # cos_i, cast_shadow, self_shadow, low_illumination
 
 # Ratio indices only from bands corrected together: ndvi_mixed = 1 where nir and red were not
 ndvi = topocorr.normalized_difference(stack_corrected, "nir", "red", "ndvi")
+
+# Is the NDVI trend real or illumination? Trends, artefact share and risk class per pixel
+risk = topocorr.diagnose(oli, model, index="ndvi")
 ```
 
 **Ratio indices.** A band whose fit is not usable is left unchanged (in winter forest this is often
@@ -60,9 +63,9 @@ Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default 
 
 ## Status
 
-In development; no release yet. Available: `collection`, `masks`, `fit` (stack model) and
-`correct` (cosine, C, SCS+C per image; SCS+C and statistical-empirical with the stack model).
-The first release (0.1) will add `diagnose` and `compare`.
+In development; no release yet. Available: `collection`, `masks`, `fit` (stack model),
+`correct` (cosine, C, SCS+C per image; SCS+C and statistical-empirical with the stack model) and
+`diagnose`. The first release (0.1) will add break checks and `compare`.
 
 ## Installation
 
