@@ -223,3 +223,140 @@ def correct(
     else:
         raise ValueError(f"unknown method {method!r}")
     return np.where(keep, rho, out), flag, fit
+
+
+# ---- diagnose: is a trend illumination? ----------------------------------------------------
+
+INDICES = {
+    "ndvi": ("nir", "red"),
+    "nbr": ("nir", "swir2"),
+    "ndmi": ("nir", "swir1"),
+    "evi": ("nir", "red", "blue"),
+    "nirv": ("nir", "red"),
+}
+"""Indices :func:`index` computes, with the bands each needs."""
+
+RISK_CLASSES = {0: "not assessable", 1: "low", 2: "medium", 3: "high", 4: "no trend"}
+"""``risk_class`` values of :func:`topocorr.diagnose`."""
+RISK_LIMITS = (0.2, 0.5)
+"""Artefact share limits of the low, medium and high classes (provisional)."""
+
+
+def illumination_factor(
+    cos_incidence: np.ndarray, zenith: float | np.ndarray, c: float | np.ndarray
+) -> np.ndarray:
+    """Return the reflectance of a slope relative to flat ground: (cos i + c) / (cos θz + c).
+
+    Examples
+    --------
+    >>> round(float(illumination_factor(np.array(0.5), 60.0, 0.0)), 6)  # cos 60° = 0.5: as flat
+    1.0
+    """
+    cz = np.cos(np.radians(zenith))
+    return (np.asarray(cos_incidence, dtype="float64") + c) / (cz + c)
+
+
+def index(name: str, bands: dict[str, np.ndarray]) -> np.ndarray:
+    """Compute a vegetation index from bands (``ndvi``, ``nbr``, ``ndmi``, ``evi``, ``nirv``).
+
+    Examples
+    --------
+    >>> round(float(index("ndvi", {"nir": np.array(0.4), "red": np.array(0.1)})), 3)
+    0.6
+    """
+    if name not in INDICES:
+        raise ValueError(f"unknown index {name!r}; choose one of {', '.join(INDICES)}")
+    b = {k: np.asarray(v, dtype="float64") for k, v in bands.items()}
+    if name == "evi":
+        return 2.5 * (b["nir"] - b["red"]) / (b["nir"] + 6 * b["red"] - 7.5 * b["blue"] + 1)
+    first, second = INDICES[name][:2]
+    nd = (b[first] - b[second]) / (b[first] + b[second])
+    return nd * b["nir"] if name == "nirv" else nd
+
+
+def harmonic_design(years: np.ndarray, harmonics: int = 2) -> np.ndarray:
+    """Columns 1, cos 2πkt, sin 2πkt (k = 1..harmonics) for time in decimal years."""
+    t = np.asarray(years, dtype="float64")
+    cols = [np.ones_like(t)]
+    for k in range(1, harmonics + 1):
+        cols += [np.cos(2 * np.pi * k * t), np.sin(2 * np.pi * k * t)]
+    return np.column_stack(cols)
+
+
+def deseasonalise(years: np.ndarray, values: np.ndarray, harmonics: int = 2) -> np.ndarray:
+    """Remove the seasonal harmonics from a series (the mean level is kept)."""
+    y = np.asarray(values, dtype="float64")
+    x = harmonic_design(years, harmonics)
+    beta = np.linalg.lstsq(x, y, rcond=None)[0]
+    return y - x[:, 1:] @ beta[1:]
+
+
+def theil_sen(x: np.ndarray, y: np.ndarray) -> float:
+    """Median of all pairwise slopes (Theil–Sen estimator).
+
+    Examples
+    --------
+    >>> theil_sen(np.arange(5.0), np.array([0.0, 2.0, 4.0, 6.0, 100.0]))  # robust to one outlier
+    2.0
+    """
+    x = np.asarray(x, dtype="float64")
+    y = np.asarray(y, dtype="float64")
+    i, j = np.triu_indices(x.size, k=1)
+    dx = x[j] - x[i]
+    ok = dx != 0
+    return float(np.median((y[j] - y[i])[ok] / dx[ok])) if ok.any() else float("nan")
+
+
+def risk_class(share: float, observed_trend: float, trend_threshold: float) -> int:
+    """Risk class from the artefact share (see :data:`RISK_CLASSES`)."""
+    if not (np.isfinite(share) and np.isfinite(observed_trend)):
+        return 0
+    if abs(observed_trend) < trend_threshold:
+        return 4
+    s = abs(share)
+    return 1 if s < RISK_LIMITS[0] else 2 if s <= RISK_LIMITS[1] else 3
+
+
+def diagnose_pixel(
+    years: np.ndarray,
+    bands: dict[str, np.ndarray],
+    cos_incidence: np.ndarray,
+    zenith: np.ndarray,
+    c: dict[str, np.ndarray],
+    *,
+    index_name: str = "ndvi",
+    harmonics: int = 2,
+    trend_threshold: float = 0.001,
+    usable: np.ndarray | None = None,
+) -> dict[str, float]:
+    """Observed and illumination-predicted index trends of one pixel, as topocorr.diagnose does.
+
+    ``bands`` are the pixel's reflectance series and ``c[band]`` the model's c per acquisition.
+    The flat-surface reflectance is the median of ρ / F over the series; the predicted series is
+    the index of F · ρ_flat. Both series are deseasonalised with the same harmonics, and their
+    Theil–Sen slopes (per year) give the artefact share = predicted / observed trend.
+    Acquisitions where ``usable`` is False (by default: self-shadow, cos i <= 0) are left out,
+    as topocorr.diagnose leaves out flagged pixels.
+    """
+    names = INDICES[index_name]
+    keep = np.asarray(cos_incidence) > 0 if usable is None else np.asarray(usable, dtype=bool)
+    years = np.asarray(years, dtype="float64")[keep]
+    cos_incidence = np.asarray(cos_incidence, dtype="float64")[keep]
+    zenith = np.broadcast_to(np.asarray(zenith, dtype="float64"), keep.shape)[keep]
+    bands = {b: np.asarray(bands[b], dtype="float64")[keep] for b in names}
+    c = {b: np.broadcast_to(np.asarray(c[b], dtype="float64"), keep.shape)[keep] for b in names}
+    factor = {b: illumination_factor(cos_incidence, zenith, c[b]) for b in names}
+    flat = {b: float(np.median(np.asarray(bands[b]) / factor[b])) for b in names}
+    observed = index(index_name, {b: bands[b] for b in names})
+    predicted = index(index_name, {b: factor[b] * flat[b] for b in names})
+    obs_trend = theil_sen(years, deseasonalise(years, observed, harmonics))
+    art_trend = theil_sen(years, deseasonalise(years, predicted, harmonics))
+    geo_trend = theil_sen(years, deseasonalise(years, cos_incidence, harmonics))
+    share = art_trend / obs_trend if obs_trend != 0 else float("nan")
+    return {
+        "observed_trend": obs_trend,
+        "artefact_trend": art_trend,
+        "geometry_trend": geo_trend,
+        "artefact_share": share,
+        "risk_class": risk_class(share, obs_trend, trend_threshold),
+    }

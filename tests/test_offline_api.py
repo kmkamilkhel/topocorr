@@ -193,3 +193,8 @@ def test_band_bits_and_mixed_pairs():
 def test_normalized_difference_checks_bands(bands):
     with pytest.raises(ValueError, match="two different bands"):
         topocorr.normalized_difference(None, *bands)
+
+
+def test_collection_checks_cloud_buffer():
+    with pytest.raises(ValueError, match="cloud_buffer"):
+        topocorr.collection("L8", None, "2020-01-01", "2021-01-01", cloud_buffer=-1)

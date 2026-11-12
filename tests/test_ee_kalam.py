@@ -114,10 +114,12 @@ def _illumination_check(kalam, scene_id):
     return info, p
 
 
-def test_scsc_in_summer_fits_every_band_and_removes_the_illumination_effect(kalam):
+def test_scsc_in_summer_removes_the_illumination_effect(kalam):
+    """With the 3-pixel cloud buffer, red has no usable fit even in summer (c -0.03; 0.06 without
+    the buffer: cloud-shadow rims had raised c in every band)."""
     info, p = _illumination_check(kalam, "LC08_150036_20230606")
-    assert p["tc_fit_ok"] == 1 and p["tc_n_sample"] >= 500
-    assert all(p[f"tc_c_{b}"] > 0 for b in sensors.BANDS)
+    assert p["tc_fit_ok_nir"] == 1 and p["tc_n_sample"] >= 500
+    assert sum(p[f"tc_fit_ok_{b}"] for b in sensors.BANDS) >= 5
     assert info["r_before"] > 0.3
     assert abs(info["r_after"]) < 0.5 * info["r_before"]
     assert info["self_shadow_forest"] < 0.01  # high summer sun
@@ -199,3 +201,23 @@ def test_stack_model_on_a_year_of_landsat_8(kalam):
         model.c("nir", "trees tc>=70/25-40", first.get("tc_sun_zenith").getInfo()), rel=1e-6
     )
     assert "tc_corrected" in first.bandNames().getInfo()
+
+
+def test_cloud_buffer_grows_cloud_and_shadow_masks(kalam):
+    """A cloudy 2023 scene: the 3-pixel buffer removes a rim around cloud and cloud shadow only."""
+    import ee
+
+    def clear(buffer):
+        images = topocorr.collection("L8", kalam, "2023-01-01", "2024-01-01", cloud_buffer=buffer)
+        image = ee.Image(images.filter(ee.Filter.rangeContains("CLOUD_COVER", 15, 40)).first())
+        return image.select("nir").mask().rename(f"b{buffer}")
+
+    both = clear(0).addBands(clear(3))
+    stats = (
+        both.addBands(clear(0).And(clear(3).Not()).rename("rim"))
+        .addBands(clear(3).And(clear(0).Not()).rename("extra"))
+        .reduceRegion(ee.Reducer.sum(), kalam, 60)
+        .getInfo()
+    )
+    assert stats["b3"] < stats["b0"]  # the buffer removes pixels
+    assert stats["rim"] > 0 and stats["extra"] == 0  # and only removes, never adds

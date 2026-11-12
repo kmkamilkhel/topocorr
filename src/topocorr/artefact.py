@@ -1,0 +1,291 @@
+"""Is a trend real or illumination? The artefact test.
+
+For every pixel and acquisition the stack model predicts how bright the pixel would be relative to
+a flat surface under the same sun, ``F_b = (cos i + c_b(θz)) / (cos θz + c_b(θz))`` per band, with
+c from the pixel's stratum. Applied to the pixel's flat-surface reflectance (the median of ρ / F
+over the series), this gives the index series that illumination alone would produce. Observed and
+predicted series are deseasonalised with the same harmonics, and their Theil–Sen slopes give
+
+* ``observed_trend`` and ``artefact_trend`` (index units per year),
+* ``artefact_share`` = artefact / observed trend, and
+* ``risk_class``: 1 low (|share| < 0.2), 2 medium (≤ 0.5), 3 high (> 0.5), 4 no trend (|observed
+  trend| below ``trend_threshold``), 0 not assessable (too few observations, or a band of the index
+  has no usable curve in the pixel's stratum).
+
+``geometry_trend`` is the Theil–Sen slope of the deseasonalised cos i. The interval ``share_low`` to
+``share_high`` repeats the prediction (flat reflectance included) with c ± 2 standard errors of the
+stage-2 curve and spans those two results and the central one (a bracket of
+the curve's uncertainty; the NumPy path in :mod:`topocorr._reference` uses a bootstrap instead).
+The NumPy twin of the per-pixel computation is :func:`topocorr._reference.diagnose_pixel`.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping
+
+import ee
+
+from . import flags as _flags
+from ._reference import INDICES, RISK_LIMITS
+from .masking import mask_bands
+from .model import model_strata, strata_image
+from .sensors import BANDS
+from .stack import SENSOR_FAMILIES, Curve, StackModel
+from .terrain import TERRAIN_SCALE, terrain
+
+_DEG = math.pi / 180.0
+_MS_PER_YEAR = 365.25 * 86400 * 1000.0
+OUTPUT_BANDS = (
+    "observed_trend",
+    "artefact_trend",
+    "geometry_trend",
+    "artefact_share",
+    "share_low",
+    "share_high",
+    "risk_class",
+    "n_obs",
+)
+"""Bands of the image returned by :func:`diagnose`."""
+
+
+def _curve_value(curve: Curve, zenith: ee.Number, k_se: float = 0.0) -> ee.Number:
+    """c(θz) + k_se · se(θz), evaluated in Earth Engine (held at the fitted range's edges)."""
+    x = zenith.max(curve.zmin).min(curve.zmax).subtract(curve.center).divide(curve.scale)
+    powers = [ee.Number(1)] + [x.pow(k) for k in range(1, len(curve.coef))]
+    value = ee.Number(0)
+    for a, p in zip(curve.coef, powers, strict=True):
+        value = value.add(p.multiply(a))
+    if k_se:
+        var = ee.Number(0)
+        for i, pi in enumerate(powers):
+            for j, pj in enumerate(powers):
+                var = var.add(pi.multiply(pj).multiply(curve.cov[i][j]))
+        value = value.add(var.max(0).sqrt().multiply(k_se))
+    return value
+
+
+def _c_image(model: StackModel, band: str, stratum: ee.Image, zenith: ee.Number, k_se: float):
+    """C of one band per pixel (masked where the stratum has no usable curve)."""
+    codes = [code for code in model.codes if model.used[band][code] is not None]
+    values = [_curve_value(model.curve(band, code), zenith, k_se) for code in codes]
+    # Stratum -1 never occurs; it keeps the lists non-empty.
+    c = stratum.remap([*codes, -1], [*values, -999]).unmask(-999)
+    return c.updateMask(c.gte(0))
+
+
+def _index(name: str, b: Mapping[str, ee.Image]) -> ee.Image:
+    if name == "evi":
+        return (
+            b["nir"]
+            .subtract(b["red"])
+            .multiply(2.5)
+            .divide(b["nir"].add(b["red"].multiply(6)).subtract(b["blue"].multiply(7.5)).add(1))
+        )
+    first, second = INDICES[name][:2]
+    nd = b[first].subtract(b[second]).divide(b[first].add(b[second]))
+    return nd.multiply(b["nir"]) if name == "nirv" else nd
+
+
+def _models_by_family(model: StackModel | Mapping[str, StackModel]) -> dict[str, StackModel]:
+    if isinstance(model, StackModel):
+        return {model.settings.get("sensor_family", "?"): model}
+    if (
+        isinstance(model, Mapping)
+        and model
+        and all(isinstance(m, StackModel) for m in model.values())
+    ):
+        return {m.settings.get("sensor_family", key): m for key, m in model.items()}
+    raise TypeError("model must be a StackModel or a dict of StackModels, one per sensor family")
+
+
+def diagnose(
+    images: ee.ImageCollection,
+    model: StackModel | Mapping[str, StackModel],
+    *,
+    index: str = "ndvi",
+    dem: str | ee.Image = "glo30",
+    harmonics: int = 2,
+    min_obs: int = 20,
+    trend_threshold: float = 0.001,
+) -> ee.Image:
+    """Map how much of each pixel's index trend the illumination history alone predicts.
+
+    Parameters
+    ----------
+    images : ee.ImageCollection
+        Images from :func:`topocorr.collection` (raw reflectance; for corrected images the
+        prediction describes the uncorrected geometry).
+    model : StackModel or dict of StackModel
+        A stack model, or one per sensor family (Landsat 5/7, Landsat 8/9, Sentinel-2) for a
+        series that spans families; each image uses its family's model.
+    index : {"ndvi", "nbr", "ndmi", "evi", "nirv"}
+        The vegetation index tested.
+    dem : str or ee.Image
+        The DEM the model was fitted with.
+    harmonics : int
+        Annual harmonics removed before the trends (1-3).
+    min_obs : int
+        Fewest usable observations of a pixel; fewer gives risk class 0.
+    trend_threshold : float
+        |observed trend| (index units per year) below which the risk class is 4, "no trend".
+
+    Returns
+    -------
+    ee.Image
+        Bands :data:`OUTPUT_BANDS` on the 30 m grid of the first image.
+    """
+    if index not in INDICES:
+        raise ValueError(f"unknown index {index!r}; choose one of {', '.join(INDICES)}")
+    if not 1 <= int(harmonics) <= 3:
+        raise ValueError("harmonics must be 1, 2 or 3")
+    if int(min_obs) < 2 * int(harmonics) + 3:
+        raise ValueError("min_obs must exceed the number of harmonic terms by at least 2")
+    models = _models_by_family(model)
+    first_model = next(iter(models.values()))
+    strata = model_strata(first_model)
+    edges = tuple(float(e) for e in first_model.settings["slope_classes"])
+    steep = float(first_model.settings["steep"])
+    needed = INDICES[index]
+    harmonic_names = ["constant"] + [
+        f"{f}{k}" for k in range(1, harmonics + 1) for f in ("cos", "sin")
+    ]
+    series = ["obs", "pred", "pred_lo", "pred_hi", "cos_i"]
+
+    def factors(image: ee.Image, k_se: float):
+        zenith = ee.Number(image.get("tc_sun_zenith"))
+        projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
+        ter = terrain(dem, projection)
+        geometry = mask_bands(ter, zenith, ee.Number(image.get("tc_sun_azimuth")), steep=steep)
+        ci = geometry.select("cos_i")
+        usable = geometry.select("tc_flag").bitwiseAnd(_flags.EXCLUDED).eq(0)
+        stratum = strata_image(strata, ter.select("slope"), edges)
+        cos_z = zenith.multiply(_DEG).cos()
+        sensor = ee.String(image.get("tc_sensor"))
+        out = {}
+        for b in needed:
+            per_family = []
+            for family, m in models.items():
+                members = [s for s, f in SENSOR_FAMILIES.items() if f == family] or [family]
+                c = _c_image(m, b, stratum, zenith, k_se)
+                per_family.append((ee.List(members).contains(sensor), c))
+            c = ee.Image.constant(-999).updateMask(0)
+            for is_family, c_family in reversed(per_family):
+                c = ee.Image(ee.Algorithms.If(is_family, c_family, c))
+            out[b] = ci.add(c).divide(c.add(cos_z))
+        return out, ci, usable
+
+    def per_image(image: ee.Image) -> ee.Image:
+        image = ee.Image(image)
+        f, ci, usable = factors(image, 0.0)
+        f_lo, _, _ = factors(image, -2.0)
+        f_hi, _, _ = factors(image, 2.0)
+        t = ee.Number(image.get("system:time_start")).divide(_MS_PER_YEAR).add(1970)
+        terms = [ee.Image.constant(1).rename("constant")]
+        for k in range(1, harmonics + 1):
+            w = t.multiply(2 * math.pi * k)
+            terms += [
+                ee.Image.constant(w.cos()).rename(f"cos{k}"),
+                ee.Image.constant(w.sin()).rename(f"sin{k}"),
+            ]
+        bands = {b: image.select(b) for b in needed}
+        flat = []
+        for prefix, fac in (("flat_", f), ("flatlo_", f_lo), ("flathi_", f_hi)):
+            flat += [bands[b].divide(fac[b]).rename(f"{prefix}{b}") for b in needed]
+        stack = ee.Image.cat(
+            [
+                ee.Image.constant(t).rename("t").toFloat(),
+                *terms,
+                _index(index, bands).rename("obs"),
+                ci.rename("cos_i"),
+                *flat,
+                *[f[b].rename(f"f_{b}") for b in needed],
+                *[f_lo[b].rename(f"flo_{b}") for b in needed],
+                *[f_hi[b].rename(f"fhi_{b}") for b in needed],
+            ]
+        ).toFloat()
+        valid = usable.And(stack.select("obs").mask())
+        for b in needed:  # every band of the index needs a usable curve
+            valid = valid.And(stack.select(f"f_{b}").mask()).And(stack.select(f"flat_{b}").mask())
+        return stack.updateMask(valid)
+
+    stacked = images.map(per_image)
+    flat_names = [f"{p}{b}" for p in ("flat_", "flatlo_", "flathi_") for b in needed]
+    flat = stacked.select(flat_names).median()
+
+    def with_prediction(img: ee.Image) -> ee.Image:
+        img = ee.Image(img)
+        pred = {}
+        variants = (
+            ("pred", "f_", "flat_"),
+            ("pred_lo", "flo_", "flatlo_"),
+            ("pred_hi", "fhi_", "flathi_"),
+        )
+        for name, prefix, flat_prefix in variants:
+            pred[name] = _index(
+                index,
+                {
+                    b: img.select(f"{prefix}{b}").multiply(flat.select(f"{flat_prefix}{b}"))
+                    for b in needed
+                },
+            ).rename(name)
+        return img.addBands(list(pred.values()))
+
+    full = stacked.map(with_prediction)
+    regression = full.select([*harmonic_names, *series]).reduce(
+        ee.Reducer.linearRegression(len(harmonic_names), len(series))
+    )
+    coefficients = regression.select("coefficients")  # (terms x series)
+
+    def deseasonalised(img: ee.Image) -> ee.Image:
+        img = ee.Image(img)
+        x = img.select(harmonic_names[1:]).toArray().toArray(1).arrayTranspose()  # 1 x (terms-1)
+        seasonal = x.matrixMultiply(coefficients.arraySlice(0, 1)).arrayProject([1])
+        seasonal = seasonal.arrayFlatten([series])
+        values = img.select(series).subtract(seasonal)
+        return ee.Image.cat([img.select("t"), values])
+
+    ds = full.map(deseasonalised)
+    # One Sen's slope per series, combined into one pass: inputs (t, series) pairs in order.
+    reducer = None
+    for name in series:
+        one = ee.Reducer.sensSlope().setOutputs([f"trend_{name}", f"offset_{name}"])
+        reducer = one if reducer is None else reducer.combine(one, None, False)
+    paired = ds.map(
+        lambda img: ee.Image.cat(
+            [ee.Image(img).select(["t", name], [f"t_{name}", f"y_{name}"]) for name in series]
+        )
+    )
+    trend = paired.reduce(reducer).select([f"trend_{n}" for n in series])
+    n_obs = full.select("obs").count().rename("n_obs")
+
+    obs_t, art_t = trend.select("trend_obs"), trend.select("trend_pred")
+    share = art_t.divide(obs_t).rename("artefact_share")
+    lo = trend.select("trend_pred_lo").divide(obs_t)
+    hi = trend.select("trend_pred_hi").divide(obs_t)
+    # The bracket always contains the central value (the share need not be monotone in c).
+    share_low = lo.min(hi).min(share).rename("share_low")
+    share_high = lo.max(hi).max(share).rename("share_high")
+    s = share.abs()
+    risk = (
+        ee.Image.constant(3)
+        .where(s.lte(RISK_LIMITS[1]), 2)
+        .where(s.lt(RISK_LIMITS[0]), 1)
+        .where(obs_t.abs().lt(trend_threshold), 4)
+        .where(n_obs.lt(min_obs), 0)
+        .unmask(0)
+        .toUint8()
+        .rename("risk_class")
+    )
+    return ee.Image.cat(
+        [
+            obs_t.rename("observed_trend"),
+            art_t.rename("artefact_trend"),
+            trend.select("trend_cos_i").rename("geometry_trend"),
+            share,
+            share_low,
+            share_high,
+            risk,
+            n_obs.toInt16(),
+        ]
+    ).set({"tc_index": index, "tc_harmonics": harmonics, "tc_min_obs": min_obs})

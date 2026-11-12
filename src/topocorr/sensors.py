@@ -139,17 +139,39 @@ def sun_angles(properties: Mapping[str, object], sensor: str) -> tuple[float, fl
     return zenith, azimuth
 
 
-def _clear(image: ee.Image, sensor: Sensor) -> ee.Image:
-    """1 where the pixel is free of cloud, cloud shadow, snow, fill and saturation."""
+CLOUD_BUFFER = 3
+"""Default buffer in pixels (of the QA band) around cloud and cloud shadow. Cloud shadows on
+slopes look like terrain shadow; an undetected rim would bias the illumination fit."""
+
+_LANDSAT_CLOUD_BITS = ("dilated_cloud", "cloud", "cloud_shadow")
+_S2_CLOUD_CLASSES = (3, 8, 9, 10)
+
+
+def _clear(image: ee.Image, sensor: Sensor, cloud_buffer: int = 0) -> ee.Image:
+    """1 where the pixel is free of cloud, cloud shadow, snow, fill and saturation.
+
+    With ``cloud_buffer`` > 0, cloud and cloud shadow are also grown by that many pixels of the
+    QA band (a square neighbourhood, evaluated on the QA band's own grid).
+    """
     if sensor.name == "S2":
         scl = image.select("SCL")
-        return scl.remap(list(S2_SCL_MASKED), [0] * len(S2_SCL_MASKED), 1)
-    bits = sum(1 << b for b in LANDSAT_QA_BITS.values())
-    qa = image.select("QA_PIXEL").bitwiseAnd(bits).eq(0)
-    return qa.And(image.select("QA_RADSAT").eq(0))
+        clear = scl.remap(list(S2_SCL_MASKED), [0] * len(S2_SCL_MASKED), 1)
+        cloudy = scl.remap(list(_S2_CLOUD_CLASSES), [1] * len(_S2_CLOUD_CLASSES), 0)
+        grid = scl.projection()
+    else:
+        qa_band = image.select("QA_PIXEL")
+        bits = sum(1 << b for b in LANDSAT_QA_BITS.values())
+        clear = qa_band.bitwiseAnd(bits).eq(0).And(image.select("QA_RADSAT").eq(0))
+        cloud_bits = sum(1 << LANDSAT_QA_BITS[b] for b in _LANDSAT_CLOUD_BITS)
+        cloudy = qa_band.bitwiseAnd(cloud_bits).neq(0)
+        grid = qa_band.projection()
+    if cloud_buffer > 0:
+        grown = cloudy.focalMax(int(cloud_buffer), "square", "pixels").reproject(grid)
+        clear = clear.And(grown.Not())
+    return clear
 
 
-def prepare(image: ee.Image, sensor: str) -> ee.Image:
+def prepare(image: ee.Image, sensor: str, cloud_buffer: int = CLOUD_BUFFER) -> ee.Image:
     """Harmonised, scaled and masked reflectance of one image, with the sun angles as properties.
 
     Parameters
@@ -158,6 +180,9 @@ def prepare(image: ee.Image, sensor: str) -> ee.Image:
         An image of the sensor's Earth Engine collection (see :data:`SENSORS`).
     sensor : str
         Sensor short name.
+    cloud_buffer : int
+        Pixels by which cloud and cloud shadow are grown before masking (see
+        :data:`CLOUD_BUFFER`); 0 uses the QA masks as they are.
 
     Returns
     -------
@@ -176,7 +201,7 @@ def prepare(image: ee.Image, sensor: str) -> ee.Image:
         zenith = ee.Number(90).subtract(ee.Number(image.get(s.elevation_key)))
     azimuth = ee.Number(image.get(s.azimuth_key)).mod(360)
     out = image.addBands(reflectance, None, True).select(list(BANDS))
-    return out.updateMask(_clear(image, s)).set(
+    return out.updateMask(_clear(image, s, int(cloud_buffer))).set(
         {"tc_sensor": name, "tc_sun_zenith": zenith, "tc_sun_azimuth": azimuth}
     )
 
@@ -188,6 +213,7 @@ def collection(
     end: str,
     *,
     max_cloud: float | None = None,
+    cloud_buffer: int = CLOUD_BUFFER,
 ) -> ee.ImageCollection:
     """Harmonised Landsat 5-9 and/or Sentinel-2 L2A images over a region, sorted by time.
 
@@ -203,6 +229,9 @@ def collection(
     max_cloud : float, optional
         Largest scene cloud cover in percent (``CLOUD_COVER`` for Landsat,
         ``CLOUDY_PIXEL_PERCENTAGE`` for Sentinel-2).
+    cloud_buffer : int
+        Pixels by which cloud and cloud shadow are grown before masking (default 3, i.e. 90 m
+        for Landsat, 60 m for the 20 m Sentinel-2 SCL); 0 keeps the QA masks as they are.
 
     Returns
     -------
@@ -216,12 +245,14 @@ def collection(
     names = resolve(sensor)
     if max_cloud is not None and not 0 <= max_cloud <= 100:
         raise ValueError("max_cloud is a percentage between 0 and 100")
+    if int(cloud_buffer) < 0 or int(cloud_buffer) > 30:
+        raise ValueError("cloud_buffer must be between 0 and 30 pixels")
     merged = None
     for name in names:
         s = SENSORS[name]
         images = ee.ImageCollection(s.collection).filterBounds(region).filterDate(start, end)
         if max_cloud is not None:
             images = images.filter(ee.Filter.lte(s.cloud_key, max_cloud))
-        images = images.map(lambda image, name=name: prepare(image, name))
+        images = images.map(lambda image, name=name: prepare(image, name, int(cloud_buffer)))
         merged = images if merged is None else merged.merge(images)
     return merged.sort("system:time_start")
