@@ -198,3 +198,18 @@ def test_normalized_difference_checks_bands(bands):
 def test_collection_checks_cloud_buffer():
     with pytest.raises(ValueError, match="cloud_buffer"):
         topocorr.collection("L8", None, "2020-01-01", "2021-01-01", cloud_buffer=-1)
+
+
+@pytest.mark.parametrize("value", [0, 5000])
+def test_shadow_search_is_checked(value):
+    with pytest.raises(ValueError, match="shadow_search"):
+        topocorr.masks(None, shadow_search=value)
+    with pytest.raises(ValueError, match="shadow_search"):
+        topocorr.correct(None, method="c", shadow_search=value)
+
+
+def test_shadow_search_helper_checks_the_zenith():
+    from topocorr.masking import shadow_search
+
+    with pytest.raises(ValueError, match="max_zenith"):
+        shadow_search(None, 90)

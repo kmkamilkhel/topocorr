@@ -289,3 +289,21 @@ def test_band_flags_and_mixed_ratio_index():
     np.testing.assert_array_equal(d["cosine_corrected"][kept], sum(BAND_BITS.values()))
     ndvi = (d["nir"] - d["red"]) / (d["nir"] + d["red"])
     np.testing.assert_allclose(d["ndvi"], ndvi, rtol=1e-5)
+
+
+def test_shadow_search_from_relief_finds_the_whole_shadow():
+    """300 m wall, zenith 60: shadows reach 300 tan 60 = 520 m, i.e. 18 pixels of 30 m.
+
+    The search distance is not a hard cut-off in Earth Engine's hill shadow (a 5-pixel search still
+    finds most of a 17-pixel shadow), so the test checks that the computed distance finds all of it.
+    """
+    from topocorr.masking import mask_bands, shadow_search
+    from topocorr.terrain import from_elevation
+
+    n = 64
+    elev = syn.ee_wall(300.0, 45.0, n).reproject(syn.ee_projection())
+    search = shadow_search(syn.ee_grid_region(n), 60.0, dem=elev)
+    assert search == 18
+    d = syn.fetch(mask_bands(from_elevation(elev), 60.0, 180.0, shadow_search=search), n)
+    cast = d["cast_shadow"][:, n // 2] > 0
+    assert abs(int(cast.sum()) - 300 * np.tan(np.radians(60)) / syn.RES) <= 2.0

@@ -52,6 +52,9 @@ uses [Semantic Versioning](https://semver.org/).
 - `collection(..., cloud_buffer=3)`: cloud and cloud shadow are grown by 3 pixels before masking
   (0 keeps the QA masks as they are). Undetected shadow rims on sunlit slopes had raised the fitted
   c in every band but NIR on a Kalam test scene.
+- `shadow_search` (pixels) for `masks()`, `correct()`, `fit()` (stored in the model) and
+  `diagnose()`, and `masking.shadow_search(region, max_zenith)`: the longest shadow the terrain can
+  cast, from the relief (region grown by that length) times tan(largest solar zenith).
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
 [Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main

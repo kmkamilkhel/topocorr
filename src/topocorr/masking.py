@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
+import math
+
 import ee
 
 from . import flags as _flags
 from .illumination import cos_i as _cos_i
 from .sensors import BANDS
-from .terrain import TERRAIN_SCALE, terrain
+from .terrain import TERRAIN_SCALE, elevation, terrain
 
 STEEP = 60.0
 """Default steep-slope threshold in degrees."""
 LOW_ILLUMINATION_LIMIT = 0.1
 """Upper limit of cos i for the low-illumination flag (``0 < cos i < 0.1``)."""
 SHADOW_SEARCH = 200
-"""Neighbourhood in pixels that ``ee.Terrain.hillShadow`` searches for shadowing terrain.
-
-200 pixels (6 km at 30 m) covers a 1500 m ridge at a sun zenith of 75°. ``hillShadow`` works on
-its own internal grid, so the edges of cast shadows are uncertain by one or two pixels and can
-differ slightly between requests of different extent or scale.
-"""
+"""Default distance in pixels within which Earth Engine's hill shadow looks for terrain that can
+cast a shadow (200 pixels = 6 km at 30 m). :func:`shadow_search` sets it from the relief instead.
+``hillShadow`` works on its own internal grid, so the edges of cast shadows are uncertain by one or
+two pixels and can differ slightly between requests of different extent or scale."""
 
 MASK_BANDS = ("cos_i", "cast_shadow", "self_shadow", "low_illumination", "steep", "tc_flag")
 """Bands returned by :func:`masks`."""
@@ -31,6 +31,7 @@ def mask_bands(
     azimuth: float | ee.Number,
     *,
     steep: float = STEEP,
+    shadow_search: int = SHADOW_SEARCH,
 ) -> ee.Image:
     """``cos_i``, the four masks (0/1) and the combined ``tc_flag`` for one sun position.
 
@@ -42,6 +43,8 @@ def mask_bands(
         Sun zenith and azimuth in degrees.
     steep : float
         Slopes above this many degrees are flagged as steep.
+    shadow_search : int
+        Distance in pixels searched for terrain that casts a shadow (see :func:`shadow_search`).
     """
     ci = _cos_i(terrain_image, zenith, azimuth)
     self_shadow = ci.lte(0)
@@ -49,7 +52,7 @@ def mask_bands(
     steep_mask = terrain_image.select("slope").gt(steep)
     elev = terrain_image.select("elevation")
     # Pinned to the terrain grid, like the slopes (see terrain.from_elevation).
-    lit = ee.Terrain.hillShadow(elev, azimuth, zenith, SHADOW_SEARCH)
+    lit = ee.Terrain.hillShadow(elev, azimuth, zenith, int(shadow_search))
     lit = lit.reproject(elev.projection())
     cast = lit.eq(0).And(self_shadow.Not())
     flag = (
@@ -75,6 +78,7 @@ def masks(
     dem: str | ee.Image = "glo30",
     *,
     steep: float = STEEP,
+    shadow_search: int = SHADOW_SEARCH,
 ) -> ee.Image | ee.ImageCollection:
     """Illumination and masks for each image, from its sun angles and the DEM.
 
@@ -88,6 +92,8 @@ def masks(
         elevation image in metres.
     steep : float
         Steep-slope threshold in degrees.
+    shadow_search : int
+        Distance in pixels searched for terrain that casts a shadow (see :func:`shadow_search`).
 
     Returns
     -------
@@ -96,13 +102,16 @@ def masks(
         ``tc_flag`` (see :mod:`topocorr.flags`), with the input image's properties.
     """
     _check_steep(steep)
+    _check_shadow_search(shadow_search)
 
     def one(image: ee.Image) -> ee.Image:
         image = ee.Image(image)
         zenith = ee.Number(image.get("tc_sun_zenith"))
         azimuth = ee.Number(image.get("tc_sun_azimuth"))
         projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
-        out = mask_bands(terrain(dem, projection), zenith, azimuth, steep=steep)
+        out = mask_bands(
+            terrain(dem, projection), zenith, azimuth, steep=steep, shadow_search=shadow_search
+        )
         return image.addBands(out).select(list(MASK_BANDS))
 
     if isinstance(images, ee.ImageCollection):
@@ -113,3 +122,47 @@ def masks(
 def _check_steep(steep: float) -> None:
     if not 0 < float(steep) <= 90:
         raise ValueError(f"steep must be a slope in degrees between 0 and 90, not {steep}")
+
+
+def _check_shadow_search(shadow_search: int) -> None:
+    if int(shadow_search) < 1 or int(shadow_search) > 2000:
+        raise ValueError("shadow_search must be between 1 and 2000 pixels")
+
+
+def shadow_search(
+    region: ee.Geometry,
+    max_zenith: float,
+    dem: str | ee.Image = "glo30",
+    *,
+    scale: float = TERRAIN_SCALE,
+) -> int:
+    """Hill-shadow search distance in pixels for a region: the longest shadow its terrain can cast.
+
+    A shadow is at most (highest − lowest elevation) × tan(θz) long. The relief is read over the
+    region grown by that length (terrain outside the region can shade it), once more with the
+    longer distance, and the result is rounded up to whole pixels of ``scale`` metres.
+
+    Parameters
+    ----------
+    region : ee.Geometry
+        The area to be corrected or diagnosed.
+    max_zenith : float
+        Largest solar zenith angle of the images, in degrees (below 89).
+    dem : str or ee.Image
+        DEM name, image asset id, or an elevation image in metres.
+    scale : float
+        Pixel size in metres of the grid the masks are computed on.
+    """
+    if not 0 <= float(max_zenith) < 89:
+        raise ValueError("max_zenith must be between 0 and 89 degrees")
+    tan_z = math.tan(math.radians(float(max_zenith)))
+    elev = elevation(dem)
+
+    def relief(geometry: ee.Geometry) -> float:
+        stats = elev.reduceRegion(ee.Reducer.minMax(), geometry, 90, maxPixels=1e9, bestEffort=True)
+        stats = stats.getInfo()
+        return float(stats["elevation_max"] - stats["elevation_min"])
+
+    length = relief(region) * tan_z
+    length = relief(region.buffer(max(length, 1.0), 100)) * tan_z
+    return max(1, math.ceil(length / float(scale)))

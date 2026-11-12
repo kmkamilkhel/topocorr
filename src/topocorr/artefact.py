@@ -28,7 +28,7 @@ import ee
 
 from . import flags as _flags
 from ._reference import INDICES, RISK_LIMITS
-from .masking import mask_bands
+from .masking import SHADOW_SEARCH, _check_shadow_search, mask_bands
 from .model import model_strata, strata_image
 from .sensors import BANDS
 from .stack import SENSOR_FAMILIES, Curve, StackModel
@@ -118,6 +118,7 @@ def diagnose(
     harmonics: int = 2,
     min_obs: int = 20,
     trend_threshold: float = 0.001,
+    shadow_search: int | None = None,
 ) -> ee.Image:
     """Map how much of each pixel's index trend the illumination history alone predicts.
 
@@ -139,6 +140,8 @@ def diagnose(
         Fewest usable observations of a pixel; fewer gives risk class 0.
     trend_threshold : float
         |observed trend| (index units per year) below which the risk class is 4, "no trend".
+    shadow_search : int, optional
+        Hill-shadow search distance in pixels; by default the model's value.
 
     Returns
     -------
@@ -156,6 +159,8 @@ def diagnose(
     strata = model_strata(first_model)
     edges = tuple(float(e) for e in first_model.settings["slope_classes"])
     steep = float(first_model.settings["steep"])
+    search = int(shadow_search or first_model.settings.get("shadow_search", SHADOW_SEARCH))
+    _check_shadow_search(search)
     needed = INDICES[index]
     harmonic_names = ["constant"] + [
         f"{f}{k}" for k in range(1, harmonics + 1) for f in ("cos", "sin")
@@ -167,7 +172,9 @@ def diagnose(
         zenith = ee.Number(image.get("tc_sun_zenith"))
         projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
         ter = terrain(dem, projection)
-        geometry = mask_bands(ter, zenith, ee.Number(image.get("tc_sun_azimuth")), steep=steep)
+        geometry = mask_bands(
+            ter, zenith, ee.Number(image.get("tc_sun_azimuth")), steep=steep, shadow_search=search
+        )
         ci = geometry.select("cos_i")
         usable = geometry.select("tc_flag").bitwiseAnd(_flags.EXCLUDED).eq(0)
         stratum = strata_image(strata, ter.select("slope"), edges)

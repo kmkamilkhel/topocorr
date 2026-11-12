@@ -40,7 +40,7 @@ import math
 import ee
 
 from . import flags as _flags
-from .masking import STEEP, _check_steep, mask_bands
+from .masking import SHADOW_SEARCH, STEEP, _check_shadow_search, _check_steep, mask_bands
 from .model import _image_sums, model_strata, strata_image
 from .sensors import BANDS
 from .stack import Curve, StackModel
@@ -67,6 +67,7 @@ def correct(
     dem: str | ee.Image = "glo30",
     min_slope: float = 5.0,
     steep: float = STEEP,
+    shadow_search: int = SHADOW_SEARCH,
     sample_size: int = 5000,
     min_pixels: int = 100,
     region: ee.Geometry | None = None,
@@ -93,6 +94,9 @@ def correct(
         Smallest slope in degrees of the pixels used to fit c.
     steep : float
         Steep-slope threshold in degrees; steeper pixels are not corrected.
+    shadow_search : int
+        Hill-shadow search distance in pixels (per-image methods; the stack methods use the
+        model's value). See :func:`topocorr.masking.shadow_search`.
     sample_size : int
         Number of pixels drawn for each image's fit (before masked pixels are dropped).
     min_pixels : int
@@ -132,6 +136,7 @@ def correct(
     if model is not None:
         raise ValueError("model is used only by the stack methods: scsc-stack and se-stack")
     _check_steep(steep)
+    _check_shadow_search(shadow_search)
     if not 0 <= float(min_slope) < 90:
         raise ValueError("min_slope must be between 0 and 90 degrees")
     if int(sample_size) < int(min_pixels) or int(min_pixels) < 2:
@@ -148,6 +153,7 @@ def correct(
             dem=dem,
             min_slope=float(min_slope),
             steep=float(steep),
+            shadow_search=int(shadow_search),
             sample_size=int(sample_size),
             min_pixels=int(min_pixels),
             region=region,
@@ -167,6 +173,7 @@ def _correct_image(
     dem: str | ee.Image,
     min_slope: float,
     steep: float,
+    shadow_search: int,
     sample_size: int,
     min_pixels: int,
     region: ee.Geometry | None,
@@ -177,7 +184,7 @@ def _correct_image(
     azimuth = ee.Number(image.get("tc_sun_azimuth"))
     projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
     ter = terrain(dem, projection)
-    geometry = mask_bands(ter, zenith, azimuth, steep=steep)
+    geometry = mask_bands(ter, zenith, azimuth, steep=steep, shadow_search=shadow_search)
     ci = geometry.select("cos_i")
     flag = geometry.select("tc_flag")
     excluded = flag.bitwiseAnd(_flags.EXCLUDED).neq(0)
@@ -358,7 +365,10 @@ def _correct_stack(
     azimuth = ee.Number(image.get("tc_sun_azimuth"))
     projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
     ter = terrain(dem, projection)
-    geometry = mask_bands(ter, zenith, azimuth, steep=float(settings["steep"]))
+    search = int(settings.get("shadow_search", SHADOW_SEARCH))
+    geometry = mask_bands(
+        ter, zenith, azimuth, steep=float(settings["steep"]), shadow_search=search
+    )
     ci = geometry.select("cos_i")
     flag = geometry.select("tc_flag")
     excluded = flag.bitwiseAnd(_flags.EXCLUDED).neq(0)
@@ -401,6 +411,7 @@ def _correct_stack(
                 samples_per_stratum=int(settings["samples_per_stratum"]),
                 region=region,
                 seed=int(settings["seed"]),
+                shadow_search=search,
             ).get("groups")
         )
         codes = groups.map(lambda g: ee.Number(ee.Dictionary(g).get("stratum")).toInt())
