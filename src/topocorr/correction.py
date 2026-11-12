@@ -36,6 +36,7 @@ to image (sun position, cloud mask), which would add a per-image offset to a tim
 from __future__ import annotations
 
 import math
+import warnings
 
 import ee
 
@@ -50,6 +51,8 @@ METHODS = ("cosine", "c", "scsc")
 """Methods available without a fitted stack model."""
 MODEL_METHODS = ("scsc-stack", "se-stack")
 """Methods that need a stack model from :func:`topocorr.fit`."""
+DEFAULT_METHOD = "scsc-stack"
+"""Method used when ``method`` is not given (a stack model is then needed)."""
 
 WORLDCOVER = "ESA/WorldCover/v200/2021"
 """ESA WorldCover 10 m, 2021 (v200): the land cover used by ``fit_mask="worldcover-trees"``."""
@@ -63,7 +66,7 @@ def correct(
     images: ee.Image | ee.ImageCollection,
     model: object | None = None,
     *,
-    method: str,
+    method: str | None = None,
     dem: str | ee.Image = "glo30",
     min_slope: float = 5.0,
     steep: float = STEEP,
@@ -85,8 +88,12 @@ def correct(
         (not used by the per-image methods). Its strata, slope classes, steep threshold, sample
         size and seed are used; ``min_slope``, ``steep``, ``sample_size``, ``min_pixels``,
         ``fit_mask`` and ``seed`` apply to the per-image methods only.
-    method : {"cosine", "c", "scsc", "scsc-stack", "se-stack"}
-        Correction method.
+    method : {"scsc-stack", "se-stack", "scsc", "c", "cosine"}, optional
+        Correction method. By default ``"scsc-stack"``, which needs ``model``. When the model's
+        images have the sun north of the tile in some images and south of it in others (near the
+        equator; :attr:`topocorr.StackModel.sun_both_sides`), ``"scsc-stack"`` warns and uses
+        per-image SCS+C (``"scsc"``) instead: one curve c(zenith) cannot follow per-image c
+        there and can bias trends on east- and west-facing slopes.
     dem : str or ee.Image
         DEM name, image asset id, or an elevation image in metres; for the stack methods, the
         DEM the model was fitted with.
@@ -126,8 +133,10 @@ def correct(
 
     Examples
     --------
-    ``corrected = topocorr.correct(ls, method="scsc", region=aoi)``
+    ``corrected = topocorr.correct(ls, model)`` (``scsc-stack``), or
+    ``topocorr.correct(ls, method="scsc", region=aoi)`` without a model.
     """
+    method, model = _choose_method(method, model)
     if method in MODEL_METHODS:
         return _correct_with_model(images, model, method=method, dem=dem, region=region)
     if method not in METHODS:
@@ -164,6 +173,27 @@ def correct(
     if isinstance(images, ee.ImageCollection):
         return images.map(one)
     return one(images)
+
+
+def _choose_method(method: str | None, model: object | None) -> tuple[str, object | None]:
+    """Return the method to run: the default, or per-image SCS+C when the sun is on both sides."""
+    if method is None:
+        if model is None:
+            raise ValueError(
+                f"the default method {DEFAULT_METHOD!r} needs a stack model from topocorr.fit; "
+                "without one, choose a per-image method: scsc, c or cosine"
+            )
+        method = DEFAULT_METHOD
+    if method == "scsc-stack" and isinstance(model, StackModel) and model.sun_both_sides:
+        warnings.warn(
+            "the sun is north of the tile in some of the model's images and south of it in others "
+            "(near the equator); one c(zenith) curve cannot follow per-image c there, so per-image "
+            "SCS+C (method 'scsc') is used instead of 'scsc-stack'",
+            UserWarning,
+            stacklevel=3,
+        )
+        return "scsc", None
+    return method, model
 
 
 def _correct_image(

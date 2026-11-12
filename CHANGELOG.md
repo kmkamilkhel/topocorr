@@ -57,4 +57,17 @@ uses [Semantic Versioning](https://semver.org/).
   cast, from the relief (region grown by that length) times tan(largest solar zenith).
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
+### Changed
+
+- `correct()` uses `method="scsc-stack"` when no method is given (`method` was required); without
+  a model it asks for one or for a per-image method.
+- `correct(..., method="scsc-stack")` warns and uses per-image SCS+C when the model's images have
+  the sun north of the tile in some images and south of it in others (`StackModel.sun_both_sides`,
+  each side at least 5 % of the images; near the equator). There per-image c differs between the
+  two sides and drifts with Landsat 5's overpass, which one c(zenith) curve cannot follow; on test
+  tiles at 4 and 10 degrees latitude it turned a west-minus-east difference of Landsat 5 NIR trends
+  negative. `stack.sun_sides()` counts the images per side.
+- `diagnose()` gives the same warning for such a model and records it in the property
+  `tc_sun_both_sides` (1, else 0); its numbers are unchanged.
+
 [Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main

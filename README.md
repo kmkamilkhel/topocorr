@@ -18,7 +18,7 @@ acquisition from the DEM and the image's sun angles, and:
 - fits a stack model once per site: the C coefficient as a smooth function of solar zenith, per
   band and stratum (land cover x slope class), so no image gets its own noisy coefficient;
 - estimates how much of an observed index trend the illumination history alone predicts
-  (`diagnose`; break checks in development).
+  (`diagnose`).
 
 ```python
 import ee
@@ -36,7 +36,7 @@ corrected = topocorr.correct(oli, method="scsc", region=aoi)
 model = topocorr.fit(oli, strata="worldcover-density", region=aoi, cache="swat_l8_fit.json")
 print(model.summary())
 model.to_json("swat_l8_model.json")
-stack_corrected = topocorr.correct(oli, model, method="scsc-stack")  # or "se-stack"
+stack_corrected = topocorr.correct(oli, model)  # scsc-stack (default); or method="se-stack"
 
 flags = topocorr.masks(oli)  # cos_i, cast_shadow, self_shadow, low_illumination, steep
 
@@ -59,13 +59,27 @@ illumination. `strata="worldcover-density"` splits tree cover by Hansen tree cov
 30-50, 50-70, at least 70 %) and leaves pixels with recorded forest loss out of the fit. The
 density layer is from 2000.
 
+**Orbit drift: east- and west-facing slopes.** Landsat 5 crossed the equator later and later
+between 1995 and 2007, in steps (up to about an hour; Roy et al. 2020, Qiu et al. 2021). The sun
+then stood higher and further towards the afternoon, so west-facing slopes were lit more
+directly over the years and east-facing slopes less. In uncorrected series this shows as greening
+on west-facing and browning on east-facing slopes. It is strongest in NIR and NIR-based indices
+(NIRv, EVI); NDVI cancels part of it. `diagnose` maps where it is a large part of the trend, and
+the stack correction removes it.
+
+**Near the equator.** Where the sun is north of the tile in some images and south of it in others
+(`model.sun_both_sides`), one c(zenith) curve cannot follow per-image c, and `scsc-stack` would
+bias trends on east- and west-facing slopes. `correct` then warns and uses per-image SCS+C. `diagnose`
+warns too and sets the property `tc_sun_both_sides`.
+
 Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default DEM: Copernicus GLO-30.
 
 ## Status
 
 In development; no release yet. Available: `collection`, `masks`, `fit` (stack model),
 `correct` (cosine, C, SCS+C per image; SCS+C and statistical-empirical with the stack model) and
-`diagnose`. The first release (0.1) will add break checks and `compare`.
+`diagnose`. The first release (0.1) covers Landsat 5, 7, 8 and 9 and adds `compare`; Sentinel-2
+harmonisation and break checks follow in 0.2.
 
 ## Installation
 
@@ -77,6 +91,15 @@ pip install git+https://github.com/kmkamilkhel/topocorr
 
 topocorr needs a Google Earth Engine account and a Cloud project registered for Earth Engine
 (`earthengine authenticate`).
+
+## References
+
+- Qiu, S., Zhu, Z., Shang, R., Crawford, C. J. (2021). Can Landsat 7 preserve its science
+  capability with a drifting orbit? *Science of Remote Sensing* 4, 100026.
+  https://doi.org/10.1016/j.srs.2021.100026
+- Roy, D. P., Li, Z., Zhang, H. K., Huang, H. (2020). A conterminous United States analysis of the
+  impact of Landsat 5 orbit drift on the temporal consistency of Landsat 5 Thematic Mapper data.
+  *Remote Sensing of Environment* 240, 111701. https://doi.org/10.1016/j.rse.2020.111701
 
 ## License
 

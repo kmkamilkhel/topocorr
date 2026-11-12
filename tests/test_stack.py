@@ -188,3 +188,45 @@ def test_model_saves_and_loads(tmp_path):
 def test_stratum_codes():
     assert stack.stratum_code(10, 2) == 102
     assert stack.split_code(1003) == (100, 3)
+
+
+def test_sun_sides_and_both_sides():
+    assert stack.sun_sides([150.0, 210.0, 60.0, 300.0]) == (2, 2)
+    model, _ = _simulated_model(np.random.default_rng(5))
+    assert not model.sun_both_sides  # every image has the sun south of the tile (azimuth 150)
+    for im in model.images:
+        im["azimuth"] = 40.0
+    assert not model.sun_both_sides  # southern hemisphere: the sun always north
+    model.images[0]["azimuth"] = 120.0  # 1 of 40 images south: below the 5 % share
+    assert not model.sun_both_sides
+    model.images[1]["azimuth"] = 120.0  # 2 of 40: 5 %
+    assert model.sun_both_sides
+
+
+def test_correct_defaults_to_scsc_stack_and_falls_back_near_the_equator():
+    from topocorr.correction import _choose_method
+
+    model, _ = _simulated_model(np.random.default_rng(6))
+    assert _choose_method(None, model) == ("scsc-stack", model)
+    assert _choose_method("scsc", None) == ("scsc", None)
+    with pytest.raises(ValueError, match="needs a stack model"):
+        _choose_method(None, None)
+    for im in model.images[:10]:
+        im["azimuth"] = 60.0  # the sun north of the tile in a quarter of the images
+    with pytest.warns(UserWarning, match="per-image SCS"):
+        assert _choose_method(None, model) == ("scsc", None)
+    with pytest.warns(UserWarning, match="per-image SCS"):
+        assert _choose_method("scsc-stack", model) == ("scsc", None)
+    assert _choose_method("se-stack", model) == ("se-stack", model)  # per-image m: not affected
+
+
+def test_diagnose_warns_and_records_when_the_sun_is_on_both_sides():
+    from topocorr.artefact import _warn_sun_both_sides
+
+    model, _ = _simulated_model(np.random.default_rng(7))
+    assert _warn_sun_both_sides({"TM/ETM+": model}) == 0
+    other, _ = _simulated_model(np.random.default_rng(8))
+    for im in other.images[:10]:
+        im["azimuth"] = 60.0
+    with pytest.warns(UserWarning, match="tc_sun_both_sides = 1"):
+        assert _warn_sun_both_sides({"TM/ETM+": model, "OLI": other}) == 1

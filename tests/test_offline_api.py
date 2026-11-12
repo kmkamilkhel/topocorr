@@ -129,6 +129,7 @@ def test_dem_sources():
     [
         ({"method": "minnaert"}, ValueError, "unknown method"),
         ({"method": "scsc-stack"}, ValueError, "needs a stack model"),
+        ({}, ValueError, "default method 'scsc-stack' needs a stack model"),
         ({"method": "se-stack", "model": object()}, TypeError, "StackModel"),
         ({"method": "c", "steep": 95}, ValueError, "steep"),
         ({"method": "c", "min_slope": 90}, ValueError, "min_slope"),
