@@ -9,8 +9,8 @@ predicted series are deseasonalised with the same harmonics, and their Theil–S
 * ``observed_trend`` and ``artefact_trend`` (index units per year),
 * ``artefact_share`` = artefact / observed trend, and
 * ``risk_class``: 1 low (|share| < 0.2), 2 medium (≤ 0.5), 3 high (> 0.5), 4 no trend (|observed
-  trend| below ``trend_threshold``), 0 not assessable (too few observations, or a band of the index
-  has no usable curve in the pixel's stratum).
+  trend| below ``trend_threshold``), 0 not assessable (too few observations, a band of the index
+  without a usable curve in the pixel's stratum, or no defined share).
 
 ``geometry_trend`` is the Theil–Sen slope of the deseasonalised cos i. The interval ``share_low`` to
 ``share_high`` repeats the prediction (flat reflectance included) with c ± 2 standard errors of the
@@ -66,12 +66,22 @@ def _curve_value(curve: Curve, zenith: ee.Number, k_se: float = 0.0) -> ee.Numbe
 
 
 def _c_image(model: StackModel, band: str, stratum: ee.Image, zenith: ee.Number, k_se: float):
-    """C of one band per pixel (masked where the stratum has no usable curve)."""
+    """C of one band per pixel.
+
+    Masked where the stratum has no usable curve, or where the central c (k_se = 0) is negative.
+    The bracket values (k_se != 0) are clamped at 0 instead, so that the bracket never removes an
+    observation that the central estimate uses.
+    """
     codes = [code for code in model.codes if model.used[band][code] is not None]
-    values = [_curve_value(model.curve(band, code), zenith, k_se) for code in codes]
+    central = [_curve_value(model.curve(band, code), zenith) for code in codes]
     # Stratum -1 never occurs; it keeps the lists non-empty.
-    c = stratum.remap([*codes, -1], [*values, -999]).unmask(-999)
-    return c.updateMask(c.gte(0))
+    c0 = stratum.remap([*codes, -1], [*central, -999]).unmask(-999)
+    valid = c0.gte(0)
+    if not k_se:
+        return c0.updateMask(valid)
+    shifted = [_curve_value(model.curve(band, code), zenith, k_se) for code in codes]
+    c = stratum.remap([*codes, -1], [*shifted, 0]).unmask(0).max(0)
+    return c.updateMask(valid)
 
 
 def _index(name: str, b: Mapping[str, ee.Image]) -> ee.Image:
@@ -152,7 +162,8 @@ def diagnose(
     ]
     series = ["obs", "pred", "pred_lo", "pred_hi", "cos_i"]
 
-    def factors(image: ee.Image, k_se: float):
+    def geometry_of(image: ee.Image):
+        """Terrain, masks, cos i and stratum of one image: computed once, used by every variant."""
         zenith = ee.Number(image.get("tc_sun_zenith"))
         projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
         ter = terrain(dem, projection)
@@ -160,6 +171,9 @@ def diagnose(
         ci = geometry.select("cos_i")
         usable = geometry.select("tc_flag").bitwiseAnd(_flags.EXCLUDED).eq(0)
         stratum = strata_image(strata, ter.select("slope"), edges)
+        return zenith, ci, usable, stratum
+
+    def factors(image: ee.Image, zenith, ci, stratum, k_se: float):
         cos_z = zenith.multiply(_DEG).cos()
         sensor = ee.String(image.get("tc_sensor"))
         out = {}
@@ -173,13 +187,14 @@ def diagnose(
             for is_family, c_family in reversed(per_family):
                 c = ee.Image(ee.Algorithms.If(is_family, c_family, c))
             out[b] = ci.add(c).divide(c.add(cos_z))
-        return out, ci, usable
+        return out
 
     def per_image(image: ee.Image) -> ee.Image:
         image = ee.Image(image)
-        f, ci, usable = factors(image, 0.0)
-        f_lo, _, _ = factors(image, -2.0)
-        f_hi, _, _ = factors(image, 2.0)
+        zenith, ci, usable, stratum = geometry_of(image)
+        f = factors(image, zenith, ci, stratum, 0.0)
+        f_lo = factors(image, zenith, ci, stratum, -2.0)
+        f_hi = factors(image, zenith, ci, stratum, 2.0)
         t = ee.Number(image.get("system:time_start")).divide(_MS_PER_YEAR).add(1970)
         terms = [ee.Image.constant(1).rename("constant")]
         for k in range(1, harmonics + 1):
@@ -266,14 +281,16 @@ def diagnose(
     # The bracket always contains the central value (the share need not be monotone in c).
     share_low = lo.min(hi).min(share).rename("share_low")
     share_high = lo.max(hi).max(share).rename("share_high")
-    s = share.abs()
+    # Classes are set only where the share is defined; everything else stays 0, not assessable.
+    s = share.abs().unmask(-1)
+    has_trend = obs_t.abs().unmask(-1)
     risk = (
-        ee.Image.constant(3)
-        .where(s.lte(RISK_LIMITS[1]), 2)
-        .where(s.lt(RISK_LIMITS[0]), 1)
-        .where(obs_t.abs().lt(trend_threshold), 4)
-        .where(n_obs.lt(min_obs), 0)
-        .unmask(0)
+        ee.Image.constant(0)
+        .where(s.gte(0).And(s.lt(RISK_LIMITS[0])), 1)
+        .where(s.gte(RISK_LIMITS[0]).And(s.lte(RISK_LIMITS[1])), 2)
+        .where(s.gt(RISK_LIMITS[1]), 3)
+        .where(has_trend.gte(0).And(has_trend.lt(trend_threshold)), 4)
+        .where(n_obs.unmask(0).lt(min_obs), 0)
         .toUint8()
         .rename("risk_class")
     )

@@ -158,3 +158,27 @@ def test_diagnose_checks_its_arguments(setup):
             topocorr.diagnose(images, model, **kwargs)
     with pytest.raises(TypeError, match="StackModel"):
         topocorr.diagnose(images, object())
+
+
+def test_wide_bracket_never_removes_central_observations(setup):
+    """Regression: c - 2 se < 0 once masked the lower bracket and, with it, the central trends."""
+    import copy
+    import dataclasses
+
+    import topocorr
+
+    elev, images, model = setup
+    wide = copy.deepcopy(model)
+    for curves in wide.curves.values():
+        for code, curve in curves.items():
+            cov = tuple(tuple(v * 1e6 for v in row) for row in curve.cov)
+            curves[code] = dataclasses.replace(curve, cov=cov)
+    d0 = syn.fetch(topocorr.diagnose(images, model, dem=elev, min_obs=12), N, margin=1)
+    d1 = syn.fetch(topocorr.diagnose(images, wide, dem=elev, min_obs=12), N, margin=1)
+    for band in ("observed_trend", "artefact_trend", "n_obs"):
+        np.testing.assert_allclose(d1[band][IN], d0[band][IN], atol=1e-7, equal_nan=True)
+    share, risk = d1["artefact_share"][IN], d1["risk_class"][IN]
+    assert np.all(risk[~np.isfinite(share)] == 0)  # no class without a defined share
+    ok = np.isfinite(share)
+    assert np.all(d1["share_low"][IN][ok] <= share[ok] + 1e-6)
+    assert np.all(share[ok] <= d1["share_high"][IN][ok] + 1e-6)
