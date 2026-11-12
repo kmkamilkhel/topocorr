@@ -4,8 +4,17 @@ topocorr works on Landsat 5-9 Collection 2 Level 2 and Sentinel-2 L2A collection
 Google Earth Engine. It computes the local solar illumination of every acquisition from
 the DEM and the image's sun angles, flags shadowed and steep pixels, and applies the
 standard terrain corrections.
+
+>>> import topocorr
+>>> topocorr.flags.decode(6)
+['self_shadow', 'steep']
 """
+
+from . import flags
+from .correction import correct
+from .masking import masks
+from .sensors import collection
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["__version__"]
+__all__ = ["__version__", "collection", "correct", "flags", "masks"]

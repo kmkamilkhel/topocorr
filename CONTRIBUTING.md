@@ -34,7 +34,9 @@ pytest
 Tests marked `ee` call Google Earth Engine. They run when credentials are available
 (`earthengine authenticate`) and the environment variable `EE_PROJECT` names a Cloud project
 registered for Earth Engine; otherwise they are skipped. All other tests run offline on
-synthetic terrain.
+synthetic terrain. The offline test jobs check coverage only for the modules that do not build
+Earth Engine computations (`check_coverage.py --offline`); a run with the Earth Engine tests checks
+every module.
 
 ## Pull requests
 
