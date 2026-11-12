@@ -25,8 +25,8 @@ import topocorr
 ee.Initialize(project="my-project")
 aoi = ee.Geometry.Rectangle([72.44, 35.41, 72.71, 35.64])  # upper Swat, Pakistan
 landsat = topocorr.collection("landsat", aoi, "2013-01-01", "2026-01-01", max_cloud=30)
-forest = ee.Image("ESA/WorldCover/v200/2021").eq(10)
-corrected = topocorr.correct(landsat, method="scsc", region=aoi, fit_mask=forest)
+# c is fitted on tree cover (ESA WorldCover 2021) unless fit_mask says otherwise
+corrected = topocorr.correct(landsat, method="scsc", region=aoi)
 flags = topocorr.masks(landsat)  # cos_i, cast_shadow, self_shadow, low_illumination, steep
 ```
 

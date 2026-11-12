@@ -16,8 +16,8 @@ uses [Semantic Versioning](https://semver.org/).
 - `masks()`: cos i, cast shadow, self-shadow, low illumination (0 < cos i < 0.1, flag only) and
   steep slopes (above 60°) per image, combined in the bit band `tc_flag` (`topocorr.flags`).
 - `correct()` with the cosine, C and SCS+C methods; c is fitted per image and band on a sample of
-  unflagged pixels with slope of at least `min_slope` (5°), optionally restricted to one land cover
-  (`fit_mask`). Bands without a usable fit (m <= 0 or c < 0) are left unchanged and flagged; pixels
+  unflagged pixels with slope of at least `min_slope` (5°), by default on tree cover only (ESA
+  WorldCover 2021; `fit_mask` takes another mask, or `None` for all pixels). Bands without a usable fit (m <= 0 or c < 0) are left unchanged and flagged; pixels
   in shadow or on steep slopes keep their input value.
 - DEMs: Copernicus GLO-30 (2024 release, default), NASADEM, SRTM, ALOS AW3D30 or any elevation
   image. Slope and aspect from the four neighbours on the image's 30 m grid; aspect is measured

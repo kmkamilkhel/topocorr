@@ -168,7 +168,12 @@ def test_corrections_match_the_reference(method):
 
     elev, image = _synthetic_image(N, M, NB)
     out = topocorr.correct(
-        image, method=method, dem=elev, region=syn.ee_grid_region(N), sample_size=2000
+        image,
+        method=method,
+        dem=elev,
+        region=syn.ee_grid_region(N),
+        sample_size=2000,
+        fit_mask=None,
     )
     ter = from_elevation(elev)
     d = syn.fetch(out.addBands(ter), N, margin=1)
@@ -192,12 +197,17 @@ def test_corrections_match_the_reference(method):
 
 
 def test_unusable_fit_returns_the_image_unchanged():
+    import ee
+
     import topocorr
     from topocorr.sensors import BANDS
 
     m = [-v for v in M]  # reflectance falls with illumination: no usable fit
     elev, image = _synthetic_image(N, m, [0.5] * 6)
-    out = topocorr.correct(image, method="scsc", dem=elev, region=syn.ee_grid_region(N))
+    everywhere = ee.Image.constant(1)  # a user mask that keeps every pixel
+    out = topocorr.correct(
+        image, method="scsc", dem=elev, region=syn.ee_grid_region(N), fit_mask=everywhere
+    )
     d = syn.fetch(out, N)
     assert out.get("tc_fit_ok").getInfo() == 0
     rho = np.array([m[i] * d["cos_i"] + 0.5 for i in range(6)])
