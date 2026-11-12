@@ -61,6 +61,45 @@ def test_aspect_is_measured_from_true_north(facing):
     np.testing.assert_allclose(d["slope"][IN], 30.0, atol=0.1)
 
 
+@pytest.mark.parametrize("lon0", [72.58, 75.0, 77.42])
+def test_aspect_agrees_with_ee_terrain_aspect(lon0):
+    """Planes facing true N/E/S/W west of, on and east of zone 43's central meridian (75° E).
+
+    ``ee.Terrain.aspect`` is an independent measure of true-north aspect: the convergence
+    changes sign across the zone, so a rotation in the wrong direction would differ by 2γ.
+    """
+    import ee
+
+    from topocorr.terrain import from_elevation
+
+    lat0, n = 35.49, 16
+    x0 = {72.58: 279990.0, 75.0: 500010.0, 77.42: 720030.0}[lon0]
+    y0 = {72.58: 3930000.0, 75.0: 3927330.0, 77.42: 3930000.0}[lon0]
+    projection = ee.Projection(syn.CRS, [syn.RES, 0, x0, 0, -syn.RES, y0])
+    ll = ee.Image.pixelLonLat().reproject(projection)
+    east = ll.select("longitude").subtract(lon0).multiply(111320 * np.cos(np.radians(lat0)))
+    north = ll.select("latitude").subtract(lat0).multiply(110950)
+    bands = []
+    for facing in (0, 90, 180, 270):
+        f = np.radians(facing)
+        z = east.multiply(np.sin(f)).add(north.multiply(np.cos(f)))
+        z = z.multiply(-np.tan(np.radians(30))).add(2000.0).rename("elevation")
+        bands += [
+            from_elevation(z).select(["aspect"], [f"tc_{facing}"]),
+            ee.Terrain.aspect(z).rename(f"ee_{facing}"),
+        ]
+    grid = syn.ee_grid(n, margin=1)
+    grid["affineTransform"].update(translateX=x0 - syn.RES, translateY=y0 + syn.RES)
+    data = ee.data.computePixels(
+        {"expression": ee.Image.cat(bands), "fileFormat": "NUMPY_NDARRAY", "grid": grid}
+    )
+    for facing in (0, 90, 180, 270):
+        tc = np.asarray(data[f"tc_{facing}"], dtype="float64")[IN]
+        ref_ee = np.asarray(data[f"ee_{facing}"], dtype="float64")[IN]
+        assert np.abs(_angle_diff(tc, facing)).max() < 0.02
+        assert np.abs(_angle_diff(tc, ref_ee)).max() < 0.02
+
+
 def test_masks_match_the_reference():
     from topocorr.masking import mask_bands
     from topocorr.terrain import from_elevation

@@ -4,8 +4,9 @@ The DEM is resampled bilinearly to the image's grid, so the terrain matches the 
 corrects. Slope and aspect come from the four neighbours of each pixel. Aspect is measured
 clockwise from **true** north, like the sun azimuth: the grid aspect of a UTM grid is rotated by
 the meridian convergence ``γ = atan(tan(λ − λ0) sin φ)``, which reaches about 1.7° at the edge of
-a UTM zone at 35° N. (``ee.Terrain.aspect`` is not used: on UTM grids its values are about 2γ away
-from true north.)
+a UTM zone at 35° N. The result agrees with ``ee.Terrain.aspect``, which also measures from true
+north. Explicit kernels are used so that the layers match the NumPy reference
+(:mod:`topocorr._reference`) exactly and stay pinned to the image's grid.
 """
 
 from __future__ import annotations
