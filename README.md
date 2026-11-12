@@ -17,8 +17,8 @@ acquisition from the DEM and the image's sun angles, and:
 - applies the standard corrections (cosine, C, SCS+C), fitted image by image;
 - fits a stack model once per site: the C coefficient as a smooth function of solar zenith, per
   band and stratum (land cover x slope class), so no image gets its own noisy coefficient;
-- estimates how much of an observed index trend the illumination history alone predicts
-  (`diagnose`).
+- estimates how much of an observed index trend is caused by the illumination history: the
+  difference between the trends of the raw and the illumination-corrected series (`diagnose`).
 
 ```python
 import ee

@@ -1,21 +1,28 @@
 """Is a trend real or illumination? The artefact test.
 
-For every pixel and acquisition the stack model predicts how bright the pixel would be relative to
-a flat surface under the same sun, ``F_b = (cos i + c_b(θz)) / (cos θz + c_b(θz))`` per band, with
-c from the pixel's stratum. Applied to the pixel's flat-surface reflectance (the median of ρ / F
-over the series), this gives the index series that illumination alone would produce. Observed and
-predicted series are deseasonalised with the same harmonics, and their Theil–Sen slopes give
+For every pixel and acquisition the stack model gives how bright the pixel is relative to a flat
+surface under the same sun, ``F_b = (cos i + c_b(θz)) / (cos θz + c_b(θz))`` per band, with c from
+the pixel's stratum. Dividing each band by F gives the series as it would be on flat ground. The
+observed and this corrected index series are deseasonalised with the same harmonics, on the same
+observations, and their Theil–Sen slopes give
 
-* ``observed_trend`` and ``artefact_trend`` (index units per year),
+* ``observed_trend``, and ``artefact_trend`` = observed minus corrected trend (index units per
+  year): the part of the trend that the illumination history causes,
 * ``artefact_share`` = artefact / observed trend, and
 * ``risk_class``: 1 low (|share| < 0.2), 2 medium (≤ 0.5), 3 high (> 0.5), 4 no trend (|observed
   trend| below ``trend_threshold``), 0 not assessable (too few observations, a band of the index
   without a usable curve in the pixel's stratum, or no defined share).
 
 ``geometry_trend`` is the Theil–Sen slope of the deseasonalised cos i. The interval ``share_low`` to
-``share_high`` repeats the prediction (flat reflectance included) with c ± 2 standard errors of the
-stage-2 curve and spans those two results and the central one (a bracket of
-the curve's uncertainty; the NumPy path in :mod:`topocorr._reference` uses a bootstrap instead).
+``share_high`` repeats the computation with c ± :data:`BRACKET_SE` standard errors of the stage-2
+curve and spans those two results and the central one. The bracket is wider than ± 2 standard
+errors because the curve's standard error understates how much c depends on which pixels were
+sampled (see :data:`BETWEEN_SAMPLE_RATIO`).
+
+The artefact estimate is the difference of two trends rather than the trend of a series predicted
+from one constant flat reflectance per pixel: under a vegetation trend the illumination effect
+scales with the changing reflectance level, which a constant flat reflectance misses (most for
+indices that are not ratios, such as NIRv and EVI).
 The NumPy twin of the per-pixel computation is :func:`topocorr._reference.diagnose_pixel`.
 """
 
@@ -48,6 +55,20 @@ OUTPUT_BANDS = (
     "n_obs",
 )
 """Bands of the image returned by :func:`diagnose`."""
+
+
+BETWEEN_SAMPLE_RATIO = 1.5
+"""Between-sample standard deviation of c divided by the stage-2 curve's standard error.
+
+Refitting the stack model on 10 random halves of the fixed points (Kalam and Ghandruk, Landsat 5/7
+and 8-9, forest strata, solar zenith 30, 45 and 60°) spread c more than the curve's standard error
+says (median 1.54 over 288 stratum and zenith cells): the curve error covers the scatter between
+images, not the choice of pixels.
+"""
+
+BRACKET_SE = 2.0 * math.sqrt(1.0 + BETWEEN_SAMPLE_RATIO**2)
+"""Half-width of the share bracket in curve standard errors: 2 standard deviations of c, with the
+between-sample spread added to the curve's own error, ``2 sqrt(1 + r²)``."""
 
 
 def _curve_value(curve: Curve, zenith: ee.Number, k_se: float = 0.0) -> ee.Number:
@@ -121,13 +142,12 @@ def diagnose(
     trend_threshold: float = 0.001,
     shadow_search: int | None = None,
 ) -> ee.Image:
-    """Map how much of each pixel's index trend the illumination history alone predicts.
+    """Map how much of each pixel's index trend the illumination history causes.
 
     Parameters
     ----------
     images : ee.ImageCollection
-        Images from :func:`topocorr.collection` (raw reflectance; for corrected images the
-        prediction describes the uncorrected geometry).
+        Images from :func:`topocorr.collection` (raw reflectance).
     model : StackModel or dict of StackModel
         A stack model, or one per sensor family (Landsat 5/7, Landsat 8/9, Sentinel-2) for a
         series that spans families; each image uses its family's model.
@@ -150,8 +170,8 @@ def diagnose(
         Bands :data:`OUTPUT_BANDS` on the 30 m grid of the first image; properties
         ``tc_index``, ``tc_harmonics``, ``tc_min_obs`` and ``tc_sun_both_sides`` (1 when a
         model's images have the sun north of the tile in some images and south of it in others,
-        :attr:`topocorr.StackModel.sun_both_sides`; ``diagnose`` then warns, as the artefact
-        prediction rests on one c(zenith) curve that does not follow per-image c there).
+        :attr:`topocorr.StackModel.sun_both_sides`; ``diagnose`` then warns, as the
+        artefact estimate rests on one c(zenith) curve that does not follow per-image c there).
     """
     if index not in INDICES:
         raise ValueError(f"unknown index {index!r}; choose one of {', '.join(INDICES)}")
@@ -171,7 +191,7 @@ def diagnose(
     harmonic_names = ["constant"] + [
         f"{f}{k}" for k in range(1, harmonics + 1) for f in ("cos", "sin")
     ]
-    series = ["obs", "pred", "pred_lo", "pred_hi", "cos_i"]
+    series = ["obs", "corr", "corr_lo", "corr_hi", "cos_i"]
 
     def geometry_of(image: ee.Image):
         """Terrain, masks, cos i and stratum of one image: computed once, used by every variant."""
@@ -206,8 +226,8 @@ def diagnose(
         image = ee.Image(image)
         zenith, ci, usable, stratum = geometry_of(image)
         f = factors(image, zenith, ci, stratum, 0.0)
-        f_lo = factors(image, zenith, ci, stratum, -2.0)
-        f_hi = factors(image, zenith, ci, stratum, 2.0)
+        f_lo = factors(image, zenith, ci, stratum, -BRACKET_SE)
+        f_hi = factors(image, zenith, ci, stratum, BRACKET_SE)
         t = ee.Number(image.get("system:time_start")).divide(_MS_PER_YEAR).add(1970)
         terms = [ee.Image.constant(1).rename("constant")]
         for k in range(1, harmonics + 1):
@@ -217,49 +237,25 @@ def diagnose(
                 ee.Image.constant(w.sin()).rename(f"sin{k}"),
             ]
         bands = {b: image.select(b) for b in needed}
-        flat = []
-        for prefix, fac in (("flat_", f), ("flatlo_", f_lo), ("flathi_", f_hi)):
-            flat += [bands[b].divide(fac[b]).rename(f"{prefix}{b}") for b in needed]
+        corrected = {}
+        for name, fac in (("corr", f), ("corr_lo", f_lo), ("corr_hi", f_hi)):
+            flat = {b: bands[b].divide(fac[b]) for b in needed}
+            corrected[name] = _index(index, flat).rename(name)
         stack = ee.Image.cat(
             [
                 ee.Image.constant(t).rename("t").toFloat(),
                 *terms,
                 _index(index, bands).rename("obs"),
                 ci.rename("cos_i"),
-                *flat,
-                *[f[b].rename(f"f_{b}") for b in needed],
-                *[f_lo[b].rename(f"flo_{b}") for b in needed],
-                *[f_hi[b].rename(f"fhi_{b}") for b in needed],
+                *corrected.values(),
             ]
         ).toFloat()
-        valid = usable.And(stack.select("obs").mask())
+        valid = usable.And(stack.select("obs").mask()).And(stack.select("corr").mask())
         for b in needed:  # every band of the index needs a usable curve
-            valid = valid.And(stack.select(f"f_{b}").mask()).And(stack.select(f"flat_{b}").mask())
+            valid = valid.And(f[b].mask())
         return stack.updateMask(valid)
 
-    stacked = images.map(per_image)
-    flat_names = [f"{p}{b}" for p in ("flat_", "flatlo_", "flathi_") for b in needed]
-    flat = stacked.select(flat_names).median()
-
-    def with_prediction(img: ee.Image) -> ee.Image:
-        img = ee.Image(img)
-        pred = {}
-        variants = (
-            ("pred", "f_", "flat_"),
-            ("pred_lo", "flo_", "flatlo_"),
-            ("pred_hi", "fhi_", "flathi_"),
-        )
-        for name, prefix, flat_prefix in variants:
-            pred[name] = _index(
-                index,
-                {
-                    b: img.select(f"{prefix}{b}").multiply(flat.select(f"{flat_prefix}{b}"))
-                    for b in needed
-                },
-            ).rename(name)
-        return img.addBands(list(pred.values()))
-
-    full = stacked.map(with_prediction)
+    full = images.map(per_image)
     regression = full.select([*harmonic_names, *series]).reduce(
         ee.Reducer.linearRegression(len(harmonic_names), len(series))
     )
@@ -287,10 +283,11 @@ def diagnose(
     trend = paired.reduce(reducer).select([f"trend_{n}" for n in series])
     n_obs = full.select("obs").count().rename("n_obs")
 
-    obs_t, art_t = trend.select("trend_obs"), trend.select("trend_pred")
+    obs_t = trend.select("trend_obs")
+    art_t = obs_t.subtract(trend.select("trend_corr"))
     share = art_t.divide(obs_t).rename("artefact_share")
-    lo = trend.select("trend_pred_lo").divide(obs_t)
-    hi = trend.select("trend_pred_hi").divide(obs_t)
+    lo = obs_t.subtract(trend.select("trend_corr_lo")).divide(obs_t)
+    hi = obs_t.subtract(trend.select("trend_corr_hi")).divide(obs_t)
     # The bracket always contains the central value (the share need not be monotone in c).
     share_low = lo.min(hi).min(share).rename("share_low")
     share_high = lo.max(hi).max(share).rename("share_high")
@@ -334,7 +331,7 @@ def _warn_sun_both_sides(models: Mapping[str, StackModel]) -> int:
         return 0
     warnings.warn(
         "the sun is north of the tile in some of the model's images and south of it in others "
-        "(near the equator); the predicted artefact rests on one c(zenith) curve, which does not "
+        "(near the equator); the artefact estimate rests on one c(zenith) curve, which does not "
         "follow per-image c there, so read the artefact share with care (tc_sun_both_sides = 1)",
         UserWarning,
         stacklevel=3,

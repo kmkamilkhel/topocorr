@@ -42,11 +42,27 @@ def test_pure_illumination_drift_is_all_artefact():
     assert out["geometry_trend"] > 0  # the sun rises over the years: the slope is lit better
 
 
-def test_pure_greening_is_no_artefact():
+def _flat_ground_trend(greening, index_name="ndvi"):
+    """The truth: the index trend of the same vegetation on flat ground (no illumination effect)."""
+    veg = 1 + greening * (YEARS - YEARS[0])
+    flat = {"nir": FLAT["nir"] * veg, "red": np.full(YEARS.size, FLAT["red"])}
+    return ref.theil_sen(YEARS, ref.deseasonalise(YEARS, ref.index(index_name, flat)))
+
+
+def _true_share(out, greening, index_name="ndvi"):
+    """Artefact share by definition: the part of the observed trend not seen on flat ground."""
+    obs = out["observed_trend"]
+    return (obs - _flat_ground_trend(greening, index_name)) / obs
+
+
+def test_pure_greening_has_no_drift_artefact():
+    """Without drift the share is small; what remains is real: on this steep north-facing slope the
+    seasonal illumination damps the visible NDVI trend (share about -0.2, against flat ground)."""
     out = _diagnose(drift=0.0, greening=0.01)
     assert out["observed_trend"] > 0.001
-    assert abs(out["artefact_share"]) < 0.05
-    assert out["risk_class"] == 1
+    assert out["artefact_share"] == pytest.approx(_true_share(out, 0.01), abs=0.02)
+    assert abs(out["artefact_share"]) < 0.25
+    assert out["risk_class"] in (1, 2)
 
 
 def test_mixture_recovers_the_known_share():
@@ -55,11 +71,53 @@ def test_mixture_recovers_the_known_share():
     When the two oppose each other, the observed trend nearly cancels and the share is unstable
     (|share| > 1 is then possible); the risk class uses |share| for that reason.
     """
-    art = _diagnose(drift=-0.8, greening=0.0)["observed_trend"]
-    veg = _diagnose(drift=0.0, greening=-0.004)["observed_trend"]
     out = _diagnose(drift=-0.8, greening=-0.004)
-    assert 0.2 < art / (art + veg) < 0.8
-    assert out["artefact_share"] == pytest.approx(art / (art + veg), abs=0.1)
+    truth = _true_share(out, -0.004)
+    assert 0.2 < truth < 0.8
+    assert out["artefact_share"] == pytest.approx(truth, abs=0.1)
+
+
+# Landsat 5-like orbit drift: the overpass comes later, so the sun is higher (zenith falls) and
+# further towards the afternoon (azimuth grows), as measured on the validation tiles (1995-2006:
+# zenith -4 to -7 degrees, azimuth +11 to +16 degrees). Forest c from the tiles' stack models:
+# red c above NIR c, so brighter illumination raises NDVI.
+FOREST_C = {"nir": 0.3, "red": 0.8}
+
+
+def _drift_pixel(aspect, greening=0.0, index_name="nirv", zenith_drift=-0.5, azimuth_drift=1.3):
+    zen = 45 + 20 * np.cos(2 * np.pi * (YEARS - 2000)) + zenith_drift * (YEARS - YEARS[0])
+    azi = 135 + azimuth_drift * (YEARS - YEARS[0])
+    ci = ref.cos_i(zen, azi, np.full(YEARS.size, 30.0), np.full(YEARS.size, float(aspect)))
+    veg = 1 + greening * (YEARS - YEARS[0])
+    bands = {
+        "nir": FLAT["nir"] * veg * ref.illumination_factor(ci, zen, FOREST_C["nir"]),
+        "red": FLAT["red"] * ref.illumination_factor(ci, zen, FOREST_C["red"]),
+    }
+    c = {b: np.full(YEARS.size, v) for b, v in FOREST_C.items()}
+    return ref.diagnose_pixel(YEARS, bands, ci, zen, c, index_name=index_name)
+
+
+@pytest.mark.parametrize("index_name", ["nirv", "ndvi"])
+def test_orbit_drift_has_an_east_west_signature(index_name):
+    """Validation test 1, azimuth drift: false greening on west-, browning on east-facing slopes."""
+    west, east = _drift_pixel(270, index_name=index_name), _drift_pixel(90, index_name=index_name)
+    north, south = _drift_pixel(0, index_name=index_name), _drift_pixel(180, index_name=index_name)
+    assert west["observed_trend"] > 0 > east["observed_trend"]
+    for out in (west, east):
+        assert out["artefact_share"] == pytest.approx(1.0, abs=0.05)
+    # the zenith and azimuth drifts nearly cancel on north- and south-facing slopes
+    for out in (north, south):
+        assert abs(out["observed_trend"]) < 0.1 * abs(west["observed_trend"])
+    if index_name == "nirv":  # NIR-based: the drift alone exceeds the trend threshold
+        assert west["risk_class"] == east["risk_class"] == 3
+
+
+def test_orbit_drift_mixed_with_greening_recovers_the_share():
+    out = _drift_pixel(270, greening=0.004)
+    truth = _true_share(out, 0.004, "nirv")
+    assert 0.5 < truth < 0.9
+    assert out["artefact_share"] == pytest.approx(truth, abs=0.1)
+    assert out["risk_class"] == 3
 
 
 def test_flat_ground_has_no_artefact():

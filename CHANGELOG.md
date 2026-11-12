@@ -69,5 +69,17 @@ uses [Semantic Versioning](https://semver.org/).
   negative. `stack.sun_sides()` counts the images per side.
 - `diagnose()` gives the same warning for such a model and records it in the property
   `tc_sun_both_sides` (1, else 0); its numbers are unchanged.
+- `diagnose()` estimates the artefact as the observed trend minus the trend of the
+  illumination-corrected series (each band divided by its illumination factor F), on the same
+  observations, in Earth Engine and in `_reference.diagnose_pixel`. Before, it took the trend of a
+  series predicted from one constant flat reflectance per pixel, which misses that the
+  illumination effect scales with a changing reflectance level: on synthetic data with known truth
+  (validation test 1, real Kalam and Ghandruk geometry) the NIRv share was recovered within 0.1 for only 35-43 %
+  of Kalam pixels, against 87-97 % now (NDVI: 88-93 % before, 92-96 % now).
+- The share bracket (`share_low`, `share_high`) uses c ± `BRACKET_SE` (3.6) curve standard errors
+  instead of ± 2: the curve's standard error understates how much c depends on the sampled pixels
+  (between-sample SD about 1.5 times the standard error, `BETWEEN_SAMPLE_RATIO`).
+- Optional extra `local` (pystac-client, planetary-computer, rasterio, pyarrow) for reading
+  Planetary Computer data next to Earth Engine.
 
 [Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main
