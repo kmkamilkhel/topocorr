@@ -69,7 +69,8 @@ the stack correction removes it.
 
 **Near the equator.** Where the sun is north of the tile in some images and south of it in others
 (`model.sun_both_sides`), one c(zenith) curve cannot follow per-image c, and `scsc-stack` would
-bias trends on east- and west-facing slopes. `correct` then warns and uses per-image SCS+C.
+bias trends on east- and west-facing slopes. `correct` then warns and uses per-image SCS+C. `diagnose`
+warns too and sets the property `tc_sun_both_sides`.
 
 Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default DEM: Copernicus GLO-30.
 

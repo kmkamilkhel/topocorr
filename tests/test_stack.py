@@ -218,3 +218,15 @@ def test_correct_defaults_to_scsc_stack_and_falls_back_near_the_equator():
     with pytest.warns(UserWarning, match="per-image SCS"):
         assert _choose_method("scsc-stack", model) == ("scsc", None)
     assert _choose_method("se-stack", model) == ("se-stack", model)  # per-image m: not affected
+
+
+def test_diagnose_warns_and_records_when_the_sun_is_on_both_sides():
+    from topocorr.artefact import _warn_sun_both_sides
+
+    model, _ = _simulated_model(np.random.default_rng(7))
+    assert _warn_sun_both_sides({"TM/ETM+": model}) == 0
+    other, _ = _simulated_model(np.random.default_rng(8))
+    for im in other.images[:10]:
+        im["azimuth"] = 60.0
+    with pytest.warns(UserWarning, match="tc_sun_both_sides = 1"):
+        assert _warn_sun_both_sides({"TM/ETM+": model, "OLI": other}) == 1

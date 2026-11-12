@@ -22,6 +22,7 @@ The NumPy twin of the per-pixel computation is :func:`topocorr._reference.diagno
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Mapping
 
 import ee
@@ -146,7 +147,11 @@ def diagnose(
     Returns
     -------
     ee.Image
-        Bands :data:`OUTPUT_BANDS` on the 30 m grid of the first image.
+        Bands :data:`OUTPUT_BANDS` on the 30 m grid of the first image; properties
+        ``tc_index``, ``tc_harmonics``, ``tc_min_obs`` and ``tc_sun_both_sides`` (1 when a
+        model's images have the sun north of the tile in some images and south of it in others,
+        :attr:`topocorr.StackModel.sun_both_sides`; ``diagnose`` then warns, as the artefact
+        prediction rests on one c(zenith) curve that does not follow per-image c there).
     """
     if index not in INDICES:
         raise ValueError(f"unknown index {index!r}; choose one of {', '.join(INDICES)}")
@@ -155,6 +160,7 @@ def diagnose(
     if int(min_obs) < 2 * int(harmonics) + 3:
         raise ValueError("min_obs must exceed the number of harmonic terms by at least 2")
     models = _models_by_family(model)
+    sun_both_sides = _warn_sun_both_sides(models)
     first_model = next(iter(models.values()))
     strata = model_strata(first_model)
     edges = tuple(float(e) for e in first_model.settings["slope_classes"])
@@ -312,4 +318,25 @@ def diagnose(
             risk,
             n_obs.toInt16(),
         ]
-    ).set({"tc_index": index, "tc_harmonics": harmonics, "tc_min_obs": min_obs})
+    ).set(
+        {
+            "tc_index": index,
+            "tc_harmonics": harmonics,
+            "tc_min_obs": min_obs,
+            "tc_sun_both_sides": sun_both_sides,
+        }
+    )
+
+
+def _warn_sun_both_sides(models: Mapping[str, StackModel]) -> int:
+    """Warn and return 1 when any model has the sun on both sides of the tile, else 0."""
+    if not any(m.sun_both_sides for m in models.values()):
+        return 0
+    warnings.warn(
+        "the sun is north of the tile in some of the model's images and south of it in others "
+        "(near the equator); the predicted artefact rests on one c(zenith) curve, which does not "
+        "follow per-image c there, so read the artefact share with care (tc_sun_both_sides = 1)",
+        UserWarning,
+        stacklevel=3,
+    )
+    return 1

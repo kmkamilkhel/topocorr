@@ -67,5 +67,7 @@ uses [Semantic Versioning](https://semver.org/).
   two sides and drifts with Landsat 5's overpass, which one c(zenith) curve cannot follow; on test
   tiles at 4 and 10 degrees latitude it turned a west-minus-east difference of Landsat 5 NIR trends
   negative. `stack.sun_sides()` counts the images per side.
+- `diagnose()` gives the same warning for such a model and records it in the property
+  `tc_sun_both_sides` (1, else 0); its numbers are unchanged.
 
 [Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main
