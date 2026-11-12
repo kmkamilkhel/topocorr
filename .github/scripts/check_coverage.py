@@ -20,6 +20,7 @@ EARTH_ENGINE_MODULES = {
     "correction.py",
     "illumination.py",
     "masking.py",
+    "model.py",
     "sensors.py",
     "terrain.py",
 }

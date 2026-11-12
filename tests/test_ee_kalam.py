@@ -174,3 +174,24 @@ def test_masks_and_correct_map_over_a_collection(kalam):
     assert info["mask_props"]["tc_sensor"] == "L9"
     assert info["corrected_bands"] == [*sensors.BANDS, "cos_i", "tc_flag"]
     assert info["method"] == "cosine"
+
+
+def test_stack_model_on_a_year_of_landsat_8(kalam):
+    """Fit the stack model on 2023 Landsat 8 over the tile and correct with it."""
+    import ee
+
+    images = topocorr.collection("L8", kalam, "2023-01-01", "2024-01-01", max_cloud=20)
+    model = topocorr.fit(images, region=kalam, samples_per_stratum=300, min_images=5)
+    trees = [code for code in model.codes if code // 10 == 10]
+    assert trees, "no tree strata on the tile"
+    for code in trees:
+        curve = model.curve("nir", code)
+        assert curve is not None and 0 <= curve(45.0) < 1.0
+    assert "trees/25-40" in model.summary()
+    corrected = topocorr.correct(images.limit(2), model, method="scsc-stack", region=kalam)
+    first = ee.Image(corrected.first())
+    assert first.get("tc_model").getInfo() == model.id
+    nir = ee.Dictionary(first.get("tc_c_nir")).getInfo()
+    assert nir["trees/25-40"] == pytest.approx(
+        model.c("nir", "trees/25-40", first.get("tc_sun_zenith").getInfo()), rel=1e-6
+    )

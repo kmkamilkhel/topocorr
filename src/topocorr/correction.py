@@ -1,8 +1,18 @@
-"""Terrain illumination corrections: cosine, C and SCS+C, fitted image by image.
+"""Terrain illumination corrections.
+
+Image by image:
 
 ``cosine``  ρ cos θz / cos i
 ``c``       ρ (cos θz + c) / (cos i + c)
 ``scsc``    ρ (cos s cos θz + c) / (cos i + c)
+
+With a stack model from :func:`topocorr.fit`, per stratum (land cover x slope class):
+
+``scsc-stack``  SCS+C with ``c = c(θz)`` from the model, the same curve for every image
+``se-stack``    statistical-empirical (Teillet et al. 1982), ρ − m_t (cos i − cos θz), with the
+                image's own slope m_t from the model's first stage (same sample and settings);
+                the reference is a horizontal surface, as for the other methods (Teillet et al.
+                used the scene mean of cos i)
 
 For the C and SCS+C methods, ``c = n / m`` comes from a least-squares fit ``ρ = m cos i + n`` per
 band and image, on a random sample of unflagged pixels with slope of at least ``min_slope``.
@@ -22,13 +32,15 @@ import ee
 
 from . import flags as _flags
 from .masking import STEEP, _check_steep, mask_bands
+from .model import _image_sums, model_strata, strata_image
 from .sensors import BANDS
+from .stack import Curve, StackModel
 from .terrain import TERRAIN_SCALE, dem_name, terrain
 
 METHODS = ("cosine", "c", "scsc")
 """Methods available without a fitted stack model."""
 MODEL_METHODS = ("scsc-stack", "se-stack")
-"""Methods that need a model from ``topocorr.fit`` (not available yet)."""
+"""Methods that need a stack model from :func:`topocorr.fit`."""
 
 WORLDCOVER = "ESA/WorldCover/v200/2021"
 """ESA WorldCover 10 m, 2021 (v200): the land cover used by ``fit_mask="worldcover-trees"``."""
@@ -58,13 +70,16 @@ def correct(
     ----------
     images : ee.Image or ee.ImageCollection
         Images prepared by :func:`topocorr.collection`.
-    model : optional
-        A stack model from ``topocorr.fit`` for the stack-level methods. Not needed (and not yet
-        available) for ``"cosine"``, ``"c"`` and ``"scsc"``.
-    method : {"cosine", "c", "scsc"}
+    model : topocorr.StackModel, optional
+        A stack model from :func:`topocorr.fit`, needed by ``"scsc-stack"`` and ``"se-stack"``
+        (not used by the per-image methods). Its strata, slope classes, steep threshold, sample
+        size and seed are used; ``min_slope``, ``steep``, ``sample_size``, ``min_pixels``,
+        ``fit_mask`` and ``seed`` apply to the per-image methods only.
+    method : {"cosine", "c", "scsc", "scsc-stack", "se-stack"}
         Correction method.
     dem : str or ee.Image
-        DEM name, image asset id, or an elevation image in metres.
+        DEM name, image asset id, or an elevation image in metres; for the stack methods, the
+        DEM the model was fitted with.
     min_slope : float
         Smallest slope in degrees of the pixels used to fit c.
     steep : float
@@ -92,18 +107,21 @@ def correct(
         The reflectance bands corrected, plus ``cos_i`` and ``tc_flag``; properties
         ``tc_method``, ``tc_dem`` and, for ``"c"`` and ``"scsc"``, ``tc_fit_ok`` (all bands
         fitted), ``tc_n_sample`` and per band ``tc_c_<band>``, ``tc_m_<band>``,
-        ``tc_fit_ok_<band>``.
+        ``tc_fit_ok_<band>``. The stack methods add ``tc_model`` (the model id) and per band
+        ``tc_c_<band>`` (``scsc-stack``: c per stratum name) or ``tc_m_<band>`` (``se-stack``:
+        m_t per stratum code; -1 where the fit was not usable).
 
     Examples
     --------
     ``corrected = topocorr.correct(ls, method="scsc", region=aoi)``
     """
     if method in MODEL_METHODS:
-        raise NotImplementedError(f"method {method!r} needs a stack model; not available yet")
+        return _correct_with_model(images, model, method=method, dem=dem, region=region)
     if method not in METHODS:
-        raise ValueError(f"unknown method {method!r}; choose one of {', '.join(METHODS)}")
+        choices = ", ".join([*METHODS, *MODEL_METHODS])
+        raise ValueError(f"unknown method {method!r}; choose one of {choices}")
     if model is not None:
-        raise NotImplementedError("stack models are not available yet; leave model=None")
+        raise ValueError("model is used only by the stack methods: scsc-stack and se-stack")
     _check_steep(steep)
     if not 0 <= float(min_slope) < 90:
         raise ValueError("min_slope must be between 0 and 90 degrees")
@@ -221,3 +239,141 @@ def _fit_mask_image(fit_mask: str | ee.Image | None) -> ee.Image | None:
     if isinstance(fit_mask, str):
         return ee.Image(WORLDCOVER).select("Map").eq(FIT_MASKS[fit_mask])
     return ee.Image(fit_mask).select(0).neq(0)
+
+
+def _correct_with_model(
+    images: ee.Image | ee.ImageCollection,
+    model: object,
+    *,
+    method: str,
+    dem: str | ee.Image,
+    region: ee.Geometry | None,
+) -> ee.Image | ee.ImageCollection:
+    if model is None:
+        raise ValueError(f"method {method!r} needs a stack model from topocorr.fit")
+    if not isinstance(model, StackModel):
+        raise TypeError(f"model must be a topocorr StackModel, not {type(model)}")
+    fitted_dem = model.settings.get("dem")
+    if fitted_dem != "user image" and fitted_dem != dem_name(dem):
+        raise ValueError(f"the model was fitted with DEM {fitted_dem!r}, not {dem_name(dem)!r}")
+
+    def one(image: ee.Image) -> ee.Image:
+        return _correct_stack(ee.Image(image), model, method=method, dem=dem, region=region)
+
+    if isinstance(images, ee.ImageCollection):
+        return images.map(one)
+    return one(images)
+
+
+def _curve_value(curve: Curve, zenith: ee.Number) -> ee.Number:
+    """c(θz) of a stage-2 curve, evaluated in Earth Engine (held at the fitted range's edges)."""
+    x = zenith.max(curve.zmin).min(curve.zmax).subtract(curve.center).divide(curve.scale)
+    total = ee.Number(curve.coef[0])
+    for k, a in enumerate(curve.coef[1:], start=1):
+        total = total.add(x.pow(k).multiply(a))
+    return total
+
+
+def _stage1_m(groups: ee.List, band_index: int, min_pixels: int) -> ee.List:
+    """Per stratum group, the slope m_t of ``ρ = m cos i + n`` (-1 where it is not usable)."""
+    n_bands = len(BANDS)
+
+    def one(group):
+        s = ee.List(ee.Dictionary(group).get("sum"))
+        n, sx, sxx = ee.Number(s.get(0)), ee.Number(s.get(1)), ee.Number(s.get(2))
+        sy = ee.Number(s.get(3 + band_index))
+        sxy = ee.Number(s.get(3 + n_bands + band_index))
+        d = n.multiply(sxx).subtract(sx.multiply(sx))
+        m = n.multiply(sxy).subtract(sx.multiply(sy)).divide(d.max(1e-30))
+        ok = n.gte(min_pixels).And(d.gt(0)).And(m.gt(0))
+        return ee.Algorithms.If(ok, m, -1)
+
+    return groups.map(one)
+
+
+def _correct_stack(
+    image: ee.Image,
+    model: StackModel,
+    *,
+    method: str,
+    dem: str | ee.Image,
+    region: ee.Geometry | None,
+) -> ee.Image:
+    settings = model.settings
+    edges = tuple(float(e) for e in settings["slope_classes"])
+    zenith = ee.Number(image.get("tc_sun_zenith"))
+    azimuth = ee.Number(image.get("tc_sun_azimuth"))
+    projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
+    ter = terrain(dem, projection)
+    geometry = mask_bands(ter, zenith, azimuth, steep=float(settings["steep"]))
+    ci = geometry.select("cos_i")
+    flag = geometry.select("tc_flag")
+    excluded = flag.bitwiseAnd(_flags.EXCLUDED).neq(0)
+    strata = model_strata(model)
+    stratum = strata_image(strata, ter.select("slope"), edges)
+    reflectance = image.select(list(BANDS))
+    cos_z = zenith.multiply(_DEG).cos()
+    props: dict[str, object] = {"tc_method": method, "tc_dem": dem_name(dem), "tc_model": model.id}
+    no_fit = ee.Image.constant(0)
+    no_model = stratum.eq(0)
+    parts = []
+
+    if method == "scsc-stack":
+        numerator = ter.select("slope").multiply(_DEG).cos().multiply(cos_z)
+        for band in BANDS:
+            codes = [code for code in model.codes if model.used[band][code] is not None]
+            values = [_curve_value(model.curve(band, code), zenith) for code in codes]
+            # Stratum -1 never occurs; it keeps the lists non-empty when no stratum has a curve.
+            c = stratum.remap([*codes, -1], [*values, -999]).unmask(-999)
+            missing = c.eq(-999)
+            valid = c.gte(0)
+            no_model = no_model.Or(missing)
+            no_fit = no_fit.Or(missing.Not().And(valid.Not()))
+            original = reflectance.select(band)
+            fitted = original.multiply(numerator.add(c)).divide(ci.add(c))
+            parts.append(original.where(valid, fitted).rename(band))
+            props[f"tc_c_{band}"] = ee.Dictionary(
+                {model.name(code): value for code, value in zip(codes, values, strict=True)}
+            )
+    else:
+        groups = ee.List(
+            _image_sums(
+                image,
+                dem=dem,
+                strata=strata,
+                slope_classes=edges,
+                steep=float(settings["steep"]),
+                samples_per_stratum=int(settings["samples_per_stratum"]),
+                region=region,
+                seed=int(settings["seed"]),
+            ).get("groups")
+        )
+        codes = groups.map(lambda g: ee.Number(ee.Dictionary(g).get("stratum")).toInt())
+        keys = codes.map(lambda c: ee.Number(c).format("%d"))
+        for b, band in enumerate(BANDS):
+            ms = _stage1_m(groups, b, int(settings["min_pixels"]))
+            m = ee.Image(
+                ee.Algorithms.If(
+                    codes.size().gt(0),
+                    stratum.remap(codes, ms, -1),
+                    ee.Image.constant(-1),
+                )
+            )
+            valid = m.gt(0)
+            no_fit = no_fit.Or(stratum.gt(0).And(valid.Not()))
+            original = reflectance.select(band)
+            fitted = original.subtract(m.multiply(ci.subtract(cos_z)))
+            parts.append(original.where(valid, fitted).rename(band))
+            props[f"tc_m_{band}"] = ee.Dictionary.fromLists(keys, ms)
+
+    corrected = ee.Image.cat(parts).where(excluded, reflectance)
+    corrected = corrected.updateMask(reflectance.mask())
+    flag = (
+        flag.add(no_fit.multiply(_flags.NO_FIT)).add(no_model.multiply(_flags.NO_MODEL)).toUint8()
+    )
+    return (
+        image.addBands(corrected.toFloat(), None, True)
+        .addBands(ci)
+        .addBands(flag.rename("tc_flag"))
+        .set(props)
+    )

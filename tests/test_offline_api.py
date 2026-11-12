@@ -101,7 +101,7 @@ def test_flag_bits_are_distinct_powers_of_two():
 
 def test_decode():
     assert flags.decode(1 + 8) == ["cast_shadow", "no_fit"]
-    for bad in (-1, 32):
+    for bad in (-1, 64):
         with pytest.raises(ValueError):
             flags.decode(bad)
 
@@ -128,7 +128,8 @@ def test_dem_sources():
     "kwargs,error,match",
     [
         ({"method": "minnaert"}, ValueError, "unknown method"),
-        ({"method": "scsc-stack"}, NotImplementedError, "stack model"),
+        ({"method": "scsc-stack"}, ValueError, "needs a stack model"),
+        ({"method": "se-stack", "model": object()}, TypeError, "StackModel"),
         ({"method": "c", "steep": 95}, ValueError, "steep"),
         ({"method": "c", "min_slope": 90}, ValueError, "min_slope"),
         ({"method": "c", "sample_size": 50, "min_pixels": 100}, ValueError, "sample_size"),
@@ -140,11 +141,36 @@ def test_correct_checks_arguments(kwargs, error, match):
         topocorr.correct(None, **kwargs)
 
 
-def test_correct_with_a_model_is_not_available_yet():
-    with pytest.raises(NotImplementedError, match="model=None"):
+def test_per_image_methods_take_no_model():
+    with pytest.raises(ValueError, match="only by the stack methods"):
         topocorr.correct(None, object(), method="scsc")
 
 
 def test_masks_checks_steep():
     with pytest.raises(ValueError, match="steep"):
         topocorr.masks(None, steep=0)
+
+
+def test_busy_earth_engine_requests_are_retried():
+    import ee
+
+    from topocorr import model
+
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 3:
+            raise ee.EEException("Too many concurrent aggregations.")
+        return "done"
+
+    assert model._request(flaky, wait=0) == "done" and len(calls) == 3
+    with pytest.raises(ee.EEException, match="concurrent"):
+        model._request(lambda: (_ for _ in ()).throw(ee.EEException("Too many concurrent")), 2, 0)
+
+    def broken():
+        raise ee.EEException("Image.select: band not found")
+
+    with pytest.raises(ee.EEException, match="not found"):
+        model._request(broken, wait=0)
+    assert model._is_busy(ee.EEException("Quota exceeded")) and not model._is_busy(ValueError())

@@ -3,7 +3,10 @@
 Flagged pixels are reported, not corrected: pixels in cast shadow, in self-shadow or on very
 steep slopes keep their input value. Low illumination is a warning only; those pixels are
 corrected. "No fit" is set on every pixel of an image in which the C or SCS+C fit of at least one
-band could not be used; those bands are returned unchanged (see ``tc_fit_ok_<band>``).
+band could not be used; those bands are returned unchanged (see ``tc_fit_ok_<band>``). With the
+stack methods, "no fit" marks the pixels of a stratum whose per-image fit (``se-stack``) or c
+(``scsc-stack``) could not be used in at least one band, and "no model" the pixels whose stratum
+the stack model does not cover; both keep their input value in those bands.
 """
 
 from __future__ import annotations
@@ -18,6 +21,8 @@ NO_FIT = 8
 """The C or SCS+C fit of at least one band was not usable; those bands are unchanged."""
 LOW_ILLUMINATION = 16
 """Barely lit: ``0 < cos i < 0.1``. Flag only; the pixel is corrected."""
+NO_MODEL = 32
+"""Stack methods: the pixel's stratum is not in the model or not assessable; not corrected."""
 
 FLAGS = {
     "cast_shadow": CAST_SHADOW,
@@ -25,6 +30,7 @@ FLAGS = {
     "steep": STEEP,
     "no_fit": NO_FIT,
     "low_illumination": LOW_ILLUMINATION,
+    "no_model": NO_MODEL,
 }
 """Flag names and their bit values."""
 
