@@ -17,7 +17,7 @@ import ee
 import numpy as np
 
 from . import flags as _flags
-from .masking import STEEP, _check_steep, mask_bands
+from .masking import SHADOW_SEARCH, STEEP, _check_shadow_search, _check_steep, mask_bands
 from .sensors import BANDS
 from .stack import StackModel, sensor_family, stratum_code
 from .terrain import TERRAIN_SCALE, dem_name, terrain
@@ -127,13 +127,14 @@ def _image_sums(
     samples_per_stratum: int,
     region: ee.Geometry | None,
     seed: int,
+    shadow_search: int = SHADOW_SEARCH,
 ) -> ee.Feature:
     """Stage-1 sums of one image: a feature with the image's angles and ``groups`` per stratum."""
     zenith = ee.Number(image.get("tc_sun_zenith"))
     azimuth = ee.Number(image.get("tc_sun_azimuth"))
     projection = image.select(BANDS[3]).projection().atScale(TERRAIN_SCALE)
     ter = terrain(dem, projection)
-    geometry = mask_bands(ter, zenith, azimuth, steep=steep)
+    geometry = mask_bands(ter, zenith, azimuth, steep=steep, shadow_search=shadow_search)
     ci = geometry.select("cos_i")
     excluded = geometry.select("tc_flag").bitwiseAnd(_flags.EXCLUDED).neq(0)
     slope = ter.select("slope")
@@ -203,6 +204,7 @@ def fit(
     min_pixels: int = 100,
     min_images: int = 10,
     steep: float = STEEP,
+    shadow_search: int = SHADOW_SEARCH,
     region: ee.Geometry | None = None,
     seed: int = 0,
     batch_size: int = 8,
@@ -242,6 +244,9 @@ def fit(
         Fewest usable images for a stratum's curve; otherwise its land cover's curve is used.
     steep : float
         Steep-slope threshold in degrees; steeper pixels are not used.
+    shadow_search : int
+        Hill-shadow search distance in pixels (see :func:`topocorr.masking.shadow_search`); stored
+        in the model and used again by the stack corrections and :func:`topocorr.diagnose`.
     region : ee.Geometry, optional
         Area sampled; by default each image's footprint.
     seed : int
@@ -262,6 +267,7 @@ def fit(
         raise ValueError("degree must be between 0 and 4")
     edges = _check_slope_classes(slope_classes)
     _check_steep(steep)
+    _check_shadow_search(shadow_search)
     if int(samples_per_stratum) < int(min_pixels) or int(min_pixels) < 3:
         raise ValueError(
             "samples_per_stratum must be at least min_pixels, and min_pixels at least 3"
@@ -278,6 +284,7 @@ def fit(
         "min_pixels": int(min_pixels),
         "min_images": int(min_images),
         "steep": float(steep),
+        "shadow_search": int(shadow_search),
         "dem": dem_name(dem),
         "seed": int(seed),
     }
@@ -308,6 +315,7 @@ def fit(
             samples_per_stratum=int(samples_per_stratum),
             region=region,
             seed=int(seed),
+            shadow_search=int(shadow_search),
         )
 
     size = int(batch_size)

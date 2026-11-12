@@ -11,6 +11,7 @@ standard terrain corrections.
 """
 
 from . import flags
+from .artefact import diagnose
 from .correction import correct, normalized_difference
 from .masking import masks
 from .model import fit
@@ -24,6 +25,7 @@ __all__ = [
     "__version__",
     "collection",
     "correct",
+    "diagnose",
     "fit",
     "flags",
     "load_model",

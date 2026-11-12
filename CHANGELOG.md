@@ -42,6 +42,19 @@ uses [Semantic Versioning](https://semver.org/).
   `<name>_mixed` where one band of the pair was corrected and the other was not.
 - The statistical-empirical method refers every image to a horizontal surface, not to the scene
   mean of cos i as in Teillet et al. (1982), so no per-image offset enters a time series.
+- `diagnose()`: how much of each pixel's index trend (NDVI, NBR, NDMI, EVI, NIRv) the
+  illumination history alone predicts. From the stack model, each acquisition's illumination
+  factor (cos i + c)/(cos θz + c) per band; observed and predicted series are deseasonalised with
+  the same harmonics; Theil-Sen trends give `observed_trend`, `artefact_trend`, `geometry_trend`,
+  `artefact_share` with a `share_low`-`share_high` bracket (c ± 2 standard errors of the curve) and
+  `risk_class` (low, medium, high, no trend, not assessable). A model per sensor family can be
+  given for series that span Landsat 5/7 and 8/9. NumPy twin: `_reference.diagnose_pixel`.
+- `collection(..., cloud_buffer=3)`: cloud and cloud shadow are grown by 3 pixels before masking
+  (0 keeps the QA masks as they are). Undetected shadow rims on sunlit slopes had raised the fitted
+  c in every band but NIR on a Kalam test scene.
+- `shadow_search` (pixels) for `masks()`, `correct()`, `fit()` (stored in the model) and
+  `diagnose()`, and `masking.shadow_search(region, max_zenith)`: the longest shadow the terrain can
+  cast, from the relief (region grown by that length) times tan(largest solar zenith).
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
 [Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main
