@@ -51,6 +51,10 @@ TUKEY = 4.685
 MODEL_VERSION = 1
 """Version of the saved model format."""
 
+SUN_SIDE_SHARE = 0.05
+"""Share of a stack's images that must have the sun on each side of the tile (north and south)
+for :attr:`StackModel.sun_both_sides`."""
+
 
 # ---- stage 1 ---------------------------------------------------------------------------------
 
@@ -282,6 +286,19 @@ def fit_curve(
 # ---- the model -------------------------------------------------------------------------------
 
 
+def sun_sides(azimuths: Iterable[float]) -> tuple[int, int]:
+    """Count the images with the sun north of the tile (cos azimuth > 0) and south of it.
+
+    Examples
+    --------
+    >>> sun_sides([150.0, 140.0, 60.0])
+    (1, 2)
+    """
+    az = np.radians(np.asarray(list(azimuths), dtype="float64"))
+    north = int((np.cos(az) > 0).sum())
+    return north, int(az.size) - north
+
+
 def sensor_family(sensors: Iterable[str]) -> str:
     """Return the one sensor family of a stack; mixing families raises ``ValueError``.
 
@@ -483,6 +500,21 @@ class StackModel:
                 vals = " ".join(f"{cv(z):7.3f}" for z in (30.0, 45.0, 60.0))
                 lines.append(f"{band:6s} {self.name(code):20s} {cv.n_images:6d} {vals}  {src}")
         return "\n".join(lines)
+
+    @property
+    def sun_both_sides(self) -> bool:
+        """True when the sun is north of the tile in some images and south of it in others.
+
+        This happens near the equator (in the test tiles, within about 10 degrees of it), where
+        the sun passes north and south of the tile in the course of the year. Each side must
+        hold at least :data:`SUN_SIDE_SHARE` of the images. Per-image c then differs between
+        the two sides, which one curve c(zenith) cannot follow, and ``scsc-stack`` can bias
+        trends on east- and west-facing slopes; :func:`topocorr.correct` uses per-image SCS+C
+        for such a stack.
+        """
+        north, south = sun_sides(im["azimuth"] for im in self.images)
+        total = north + south
+        return total > 0 and min(north, south) >= SUN_SIDE_SHARE * total
 
     # ---- saving ----
     def to_dict(self) -> dict:
