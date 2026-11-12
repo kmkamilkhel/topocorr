@@ -3,10 +3,17 @@
 Flagged pixels are reported, not corrected: pixels in cast shadow, in self-shadow or on very
 steep slopes keep their input value. Low illumination is a warning only; those pixels are
 corrected. "No fit" is set on every pixel of an image in which the C or SCS+C fit of at least one
-band could not be used; those bands are returned unchanged (see ``tc_fit_ok_<band>``).
+band could not be used; those bands are returned unchanged (see ``tc_fit_ok_<band>``). With the
+stack methods, "no fit" marks the pixels of a stratum whose per-image fit (``se-stack``) or c
+(``scsc-stack``) could not be used in at least one band, and "no model" the pixels whose stratum
+the stack model does not cover; both keep their input value in those bands.
 """
 
 from __future__ import annotations
+
+import numpy as np
+
+from .sensors import BANDS
 
 CAST_SHADOW = 1
 """Shadow cast by surrounding terrain (and not self-shadowed)."""
@@ -18,6 +25,8 @@ NO_FIT = 8
 """The C or SCS+C fit of at least one band was not usable; those bands are unchanged."""
 LOW_ILLUMINATION = 16
 """Barely lit: ``0 < cos i < 0.1``. Flag only; the pixel is corrected."""
+NO_MODEL = 32
+"""Stack methods: the pixel's stratum is not in the model or not assessable; not corrected."""
 
 FLAGS = {
     "cast_shadow": CAST_SHADOW,
@@ -25,11 +34,44 @@ FLAGS = {
     "steep": STEEP,
     "no_fit": NO_FIT,
     "low_illumination": LOW_ILLUMINATION,
+    "no_model": NO_MODEL,
 }
 """Flag names and their bit values."""
 
 EXCLUDED = CAST_SHADOW | SELF_SHADOW | STEEP
 """Flags whose pixels keep their input value."""
+
+
+BAND_BITS = {band: 1 << i for i, band in enumerate(BANDS)}
+"""Bits of the ``tc_corrected`` band: bit i is set where band ``BANDS[i]`` was corrected.
+
+Ratio indices (NDVI, NBR, ...) must be computed from bands corrected together, or from raw
+bands, never from a corrected band and an uncorrected one: the illumination term then no longer
+cancels and the index takes a spurious dependence on terrain. :func:`mixed` finds such pixels;
+:func:`topocorr.normalized_difference` flags them.
+"""
+
+
+def mixed(corrected, bands) -> np.ndarray | bool:
+    """Return True where some, but not all, of ``bands`` were corrected.
+
+    ``corrected`` is a ``tc_corrected`` value or array.
+
+    Examples
+    --------
+    >>> bool(mixed(BAND_BITS["nir"], ["nir", "red"]))  # NIR corrected, red not
+    True
+    >>> bool(mixed(BAND_BITS["nir"] | BAND_BITS["red"], ["nir", "red"]))
+    False
+    """
+    bits = 0
+    for band in bands:
+        if band not in BAND_BITS:
+            raise ValueError(f"unknown band {band!r}; bands: {', '.join(BANDS)}")
+        bits |= BAND_BITS[band]
+    hit = np.bitwise_and(np.asarray(corrected, dtype="int64"), bits)
+    out = (hit != 0) & (hit != bits)
+    return bool(out) if np.ndim(out) == 0 else out
 
 
 def decode(value: int) -> list[str]:

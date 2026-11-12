@@ -11,10 +11,22 @@ standard terrain corrections.
 """
 
 from . import flags
-from .correction import correct
+from .correction import correct, normalized_difference
 from .masking import masks
+from .model import fit
 from .sensors import collection
+from .stack import StackModel, load_model
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["__version__", "collection", "correct", "flags", "masks"]
+__all__ = [
+    "StackModel",
+    "__version__",
+    "collection",
+    "correct",
+    "fit",
+    "flags",
+    "load_model",
+    "masks",
+    "normalized_difference",
+]

@@ -22,6 +22,26 @@ uses [Semantic Versioning](https://semver.org/).
 - DEMs: Copernicus GLO-30 (2024 release, default), NASADEM, SRTM, ALOS AW3D30 or any elevation
   image. Slope and aspect from the four neighbours on the image's 30 m grid; aspect is measured
   from true north (UTM grid aspect rotated by the meridian convergence).
+- `fit()`: the stack model. Per image, band and stratum (ESA WorldCover land cover x slope
+  class 5-25, 25-40, 40-60°), `ρ = m cos i + n` on a stratified sample; across the stack,
+  `c = n / m` as a polynomial in solar zenith (degree 2), fitted by weighted robust regression
+  (weights from each image's sampling variance plus the scatter between images, Tukey's
+  biweight). Strata with too few usable images use their land cover's curve over all slopes, or
+  are reported as not assessable. One sensor family per fit. Requests are batched, retried when
+  Earth Engine is busy, and can be cached so an interrupted fit resumes.
+- `StackModel` (`summary()`, `c()`, `image_fits()`, `to_json()`) and `load_model()`.
+- `correct(..., model, method="scsc-stack")`: SCS+C with c from the stack model; and
+  `method="se-stack"`: statistical-empirical correction (Teillet et al. 1982) with each image's
+  own slope m from the model's first stage, relative to a horizontal surface.
+- Flag `no_model` (32): pixels whose stratum the stack model does not cover; not corrected.
+- `strata="worldcover-density"` for `fit()`: WorldCover tree cover split by Hansen tree cover in
+  2000 (below 30, 30-50, 50-70, at least 70 %); with it, pixels with any recorded Hansen forest
+  loss are left out of the fit (they are still corrected).
+- Band `tc_corrected` from every correction method: bit i set where band i was corrected
+  (`topocorr.flags.BAND_BITS`, `topocorr.flags.mixed`); and `normalized_difference()`, which adds
+  `<name>_mixed` where one band of the pair was corrected and the other was not.
+- The statistical-empirical method refers every image to a horizontal surface, not to the scene
+  mean of cos i as in Teillet et al. (1982), so no per-image offset enters a time series.
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
 [Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main

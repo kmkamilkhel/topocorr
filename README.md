@@ -15,8 +15,10 @@ acquisition from the DEM and the image's sun angles, and:
 
 - flags cast shadow, self-shadow, low illumination and very steep slopes;
 - applies the standard corrections (cosine, C, SCS+C), fitted image by image;
-- will estimate how much of an observed trend or break the illumination history alone predicts,
-  with a correction fitted once for the whole stack (in development).
+- fits a stack model once per site: the C coefficient as a smooth function of solar zenith, per
+  band and stratum (land cover x slope class), so no image gets its own noisy coefficient;
+- will estimate how much of an observed trend or break the illumination history alone predicts
+  (in development).
 
 ```python
 import ee
@@ -24,18 +26,43 @@ import topocorr
 
 ee.Initialize(project="my-project")
 aoi = ee.Geometry.Rectangle([72.44, 35.41, 72.71, 35.64])  # upper Swat, Pakistan
-landsat = topocorr.collection("landsat", aoi, "2013-01-01", "2026-01-01", max_cloud=30)
-# c is fitted on tree cover (ESA WorldCover 2021) unless fit_mask says otherwise
-corrected = topocorr.correct(landsat, method="scsc", region=aoi)
-flags = topocorr.masks(landsat)  # cos_i, cast_shadow, self_shadow, low_illumination, steep
+oli = topocorr.collection("L8", aoi, "2013-01-01", "2026-01-01", max_cloud=30)
+
+# Image by image; c is fitted on tree cover (ESA WorldCover 2021) unless fit_mask says otherwise
+corrected = topocorr.correct(oli, method="scsc", region=aoi)
+
+# Stack model: c(solar zenith) per band and stratum, fitted once (one sensor family per fit).
+# "worldcover-density" splits tree cover by canopy density (Hansen tree cover in 2000).
+model = topocorr.fit(oli, strata="worldcover-density", region=aoi, cache="swat_l8_fit.json")
+print(model.summary())
+model.to_json("swat_l8_model.json")
+stack_corrected = topocorr.correct(oli, model, method="scsc-stack")  # or "se-stack"
+
+flags = topocorr.masks(oli)  # cos_i, cast_shadow, self_shadow, low_illumination, steep
+
+# Ratio indices only from bands corrected together: ndvi_mixed = 1 where nir and red were not
+ndvi = topocorr.normalized_difference(stack_corrected, "nir", "red", "ndvi")
 ```
+
+**Ratio indices.** A band whose fit is not usable is left unchanged (in winter forest this is often
+red), so a corrected image can hold corrected and uncorrected bands side by side. The band
+`tc_corrected` records, per pixel, which bands were corrected. Compute NDVI, NBR and other ratio
+indices only from bands corrected together, or from the raw bands; never from a mix.
+`topocorr.normalized_difference` flags the pixels where the two bands differ.
+
+**Canopy density.** On mountain slopes canopy density often follows aspect: dense forest on shaded
+slopes, open forest on sunlit ones. A fit over all forest then learns composition as well as
+illumination. `strata="worldcover-density"` splits tree cover by Hansen tree cover in 2000 (below 30,
+30-50, 50-70, at least 70 %) and leaves pixels with recorded forest loss out of the fit. The
+density layer is from 2000.
 
 Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default DEM: Copernicus GLO-30.
 
 ## Status
 
-In development; no release yet. Available: `collection`, `masks` and `correct` (cosine, C,
-SCS+C). The first release (0.1) will add `fit`, `diagnose` and `compare`.
+In development; no release yet. Available: `collection`, `masks`, `fit` (stack model) and
+`correct` (cosine, C, SCS+C per image; SCS+C and statistical-empirical with the stack model).
+The first release (0.1) will add `diagnose` and `compare`.
 
 ## Installation
 
