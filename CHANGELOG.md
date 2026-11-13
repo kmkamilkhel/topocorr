@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-13
+
 ### Added
 
 - `collection()`: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A as one harmonised
@@ -111,4 +113,5 @@ uses [Semantic Versioning](https://semver.org/).
 - Optional extra `local` (pystac-client, planetary-computer, rasterio, pyarrow) for reading
   Planetary Computer data next to Earth Engine.
 
-[Unreleased]: https://github.com/kmkamilkhel/topocorr/commits/main
+[Unreleased]: https://github.com/kmkamilkhel/topocorr/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/kmkamilkhel/topocorr/releases/tag/v0.1.0

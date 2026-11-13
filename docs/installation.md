@@ -1,9 +1,7 @@
 # Installation
 
-Until the first release, install from GitHub:
-
 ```bash
-pip install git+https://github.com/kmkamilkhel/topocorr
+pip install topocorr
 ```
 
 topocorr needs Python 3.11 or newer, NumPy and the Earth Engine Python API. You need a Google Earth
@@ -26,7 +24,7 @@ ee.Initialize(project="my-project")
 | `local` | pystac-client, planetary-computer, rasterio, pyarrow | reading Planetary Computer data next to Earth Engine (the NumPy reference path) |
 
 ```bash
-pip install "topocorr[local] @ git+https://github.com/kmkamilkhel/topocorr"
+pip install "topocorr[local]"
 ```
 
 `compare` returns a pandas DataFrame when pandas is installed, and a list of dicts otherwise.

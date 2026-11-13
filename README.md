@@ -108,17 +108,15 @@ Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default 
 
 ## Status
 
-In development; no release yet. Available: `collection`, `masks`, `fit` (stack model),
-`correct` (cosine, C, SCS+C per image; SCS+C, C and statistical-empirical with the stack model),
-`diagnose` and `compare`. The first release (0.1) covers Landsat 5, 7, 8 and 9; Sentinel-2
-harmonisation and break checks follow in 0.2.
+Version 0.1.0: `collection`, `masks`, `fit` (stack model), `correct` (cosine, C, SCS+C per image;
+SCS+C, C and statistical-empirical with the stack model), `diagnose` and `compare`, validated for
+Landsat 5, 7, 8 and 9. Sentinel-2 validation and break checks at sensor switches follow in 0.2.
+Documentation: https://kmkamilkhel.github.io/topocorr/
 
 ## Installation
 
-From GitHub until the first release:
-
 ```bash
-pip install git+https://github.com/kmkamilkhel/topocorr
+pip install topocorr
 ```
 
 topocorr needs a Google Earth Engine account and a Cloud project registered for Earth Engine
