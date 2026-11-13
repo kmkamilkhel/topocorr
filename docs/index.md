@@ -33,5 +33,5 @@ not from the forest.
 
 | Version | Content |
 |---|---|
-| 0.1 | Landsat 5, 7, 8 and 9 Collection 2 Level 2: `collection`, `masks`, `fit`, `correct`, `diagnose`, `compare_export`, `compare` |
+| 0.1 (released) | Landsat 5, 7, 8 and 9 Collection 2 Level 2: `collection`, `masks`, `fit`, `correct`, `diagnose`, `compare_export`, `compare` |
 | 0.2 (planned) | Sentinel-2 L2A harmonisation and break checks at sensor switches |
