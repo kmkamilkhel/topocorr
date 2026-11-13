@@ -40,8 +40,8 @@ methods leave trends of their own where their per-image c differs from image to 
 
 This measure **assumes that the stack model is right**: it shows what a method leaves of the drift
 the model predicts, not a drift measured in the data. The data-based checks are `diagnose`
-(observed trend against drift trend) and the Landsat 5 west-east test on the
-[Validation](validation.md) page. A data-based drift sensitivity was tried and dropped: on Landsat
+(observed trend against drift trend) and the tests summarised on the [Validation](validation.md)
+page. A data-based drift sensitivity was tried and dropped: on Landsat
 8-9 the sun angle barely changes between years at the same date, so the remaining sun-angle
 variation is within the season, where phenology also varies and dominates.
 

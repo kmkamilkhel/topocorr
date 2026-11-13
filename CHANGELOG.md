@@ -83,9 +83,8 @@ uses [Semantic Versioning](https://semver.org/).
 - `correct(..., method="scsc-stack")` warns and uses per-image SCS+C when the model's images have
   the sun north of the tile in some images and south of it in others (`StackModel.sun_both_sides`,
   each side at least 5 % of the images; near the equator). There per-image c differs between the
-  two sides and drifts with Landsat 5's overpass, which one c(zenith) curve cannot follow; on test
-  tiles at 4 and 10 degrees latitude it turned a west-minus-east difference of Landsat 5 NIR trends
-  negative. `stack.sun_sides()` counts the images per side.
+  two sides and drifts with Landsat 5's overpass, which one c(zenith) curve cannot follow.
+  `stack.sun_sides()` counts the images per side.
 - `correct(..., method="c-stack")` falls back to per-image C in the same case.
 - `compare()` gives the same warning in that case and records `tc_sun_both_sides` (1, else 0) in its
   table; it applies every method as named.

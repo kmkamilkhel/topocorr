@@ -2,10 +2,9 @@
 
 Within about ten degrees of the equator, the sun passes north of a tile in part of the year and
 south of it in the rest. Per-image c then differs between the two sides, and with Landsat 5's
-drifting overpass the mix changes over the years. One curve c(solar zenith) cannot follow that:
-on test tiles at 4 and 10 degrees latitude, `scsc-stack` turned a west-minus-east difference of
-Landsat 5 NIR trends from positive to clearly negative (over-correction), where per-image SCS+C
-left it near zero.
+drifting overpass the mix changes over the years. One curve c(solar zenith) cannot follow that,
+so `scsc-stack` would bias the trends of east- and west-facing slopes there, while per-image SCS+C
+follows each image's c.
 
 topocorr detects this case from the sun azimuths of the model's images:
 
