@@ -101,6 +101,7 @@ uses [Semantic Versioning](https://semver.org/).
 - The share bracket (`share_low`, `share_high`) uses c ± `BRACKET_SE` (3.6) curve standard errors
   instead of ± 2: the curve's standard error understates how much c depends on the sampled pixels
   (between-sample SD about 1.5 times the standard error, `BETWEEN_SAMPLE_RATIO`).
+- README: use NIRv or EVI for drift checks; in NDVI the drift artefact is near the noise level.
 - Optional extra `local` (pystac-client, planetary-computer, rasterio, pyarrow) for reading
   Planetary Computer data next to Earth Engine.
 

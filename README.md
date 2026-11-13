@@ -88,6 +88,12 @@ on west-facing and browning on east-facing slopes. It is strongest in NIR and NI
 (NIRv, EVI); NDVI cancels part of it. `diagnose` maps where it is a large part of the trend, and
 the stack correction removes it.
 
+**Which index for drift checks.** Use NIRv or EVI. In NDVI the drift artefact is small, often near
+the noise level of an NDVI trend, so noise can halve the estimated drift share: an NDVI "medium"
+can be a real artefact. On synthetic series with known truth (real terrain, dates and sun angles
+of two Landsat 5 test tiles), pixels whose true drift share was at least 0.7 were classed high in
+99.6-100 % of cases for NIRv but in 80-90 % for NDVI (the rest medium).
+
 **Near the equator.** Where the sun is north of the tile in some images and south of it in others
 (`model.sun_both_sides`), one c(zenith) curve cannot follow per-image c, and `scsc-stack` would
 bias trends on east- and west-facing slopes. `correct` then warns and uses per-image SCS+C
