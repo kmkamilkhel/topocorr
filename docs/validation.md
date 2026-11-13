@@ -1,7 +1,7 @@
 # Validation
 
 Validated on synthetic data with known truth and on real Landsat time series at mountain forest
-sites on four continents; full results in a forthcoming paper. This page summarises the tests of the
+sites on five continents; full results in a forthcoming paper. This page summarises the tests of the
 method itself and of its Earth Engine implementation. They were run with the development version.
 
 ## Does `diagnose` recover a known drift artefact?

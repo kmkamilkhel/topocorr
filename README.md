@@ -95,7 +95,7 @@ of two Landsat 5 test tiles), pixels whose true drift share was at least 0.7 wer
 99.6-100 % of cases for NIRv but in 80-90 % for NDVI (the rest medium).
 
 **Validation.** Validated on synthetic data with known truth and on real Landsat time series at
-mountain forest sites on four continents; full results in a forthcoming paper. A summary is on the
+mountain forest sites on five continents; full results in a forthcoming paper. A summary is on the
 [Validation](https://kmkamilkhel.github.io/topocorr/validation/) page of the documentation.
 
 **Near the equator.** Where the sun is north of the tile in some images and south of it in others
