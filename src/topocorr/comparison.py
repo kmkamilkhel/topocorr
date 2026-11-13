@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -313,7 +314,12 @@ def compare(
         One row per method: ``method``, ``points``, ``images``, ``illumination_r``,
         ``sunlit_shaded_gap``, ``temporal_sd_nir``, ``temporal_sd_<index>``,
         ``out_of_range``, ``predicted_drift_left``, ``predicted_drift_high`` (the predicted
-        drift left assumes that the stack model is right; see the module documentation).
+        drift left assumes that the stack model is right; see the module documentation) and
+        ``tc_sun_both_sides``: 1 when the model's images have the sun north of the tile in
+        some images and south of it in others (near the equator;
+        :attr:`topocorr.StackModel.sun_both_sides`), else 0. ``compare`` then warns: it
+        applies every method as named, while :func:`topocorr.correct` would use per-image
+        SCS+C instead of ``"scsc-stack"`` and per-image C instead of ``"c-stack"``.
 
     Examples
     --------
@@ -332,6 +338,7 @@ def compare(
     model = t.get("model")
     if not isinstance(model, StackModel):
         raise TypeError("a stack model is needed: pass model= or a manifest from compare_export")
+    sun_both_sides = _warn_sun_both_sides(model)
     a = _arrays(t)
     codes = a["static"]["stratum"].astype(int)
     tree = np.array([_is_tree(model, c) for c in codes])
@@ -347,6 +354,7 @@ def compare(
             a, model, method, fit_points, int(min_pixels), [a["data"], series]
         )
         row = {"method": method, "points": int(forest.sum()), "images": int(a["zen"].size)}
+        row["tc_sun_both_sides"] = sun_both_sides
         row.update(_metrics(a, bands, predicted, forest, index, int(harmonics), int(min_obs)))
         rows.append(row)
     try:
@@ -354,3 +362,19 @@ def compare(
     except ImportError:
         return rows
     return pd.DataFrame(rows).set_index("method")
+
+
+def _warn_sun_both_sides(model: StackModel) -> int:
+    """Warn and return 1 when the model has the sun on both sides of the tile, else 0."""
+    if not model.sun_both_sides:
+        return 0
+    warnings.warn(
+        "the sun is north of the tile in some of the model's images and south of it in others "
+        "(near the equator); one c(zenith) curve cannot follow per-image c there. compare applies "
+        "every method as named, while correct() would use per-image SCS+C instead of 'scsc-stack' "
+        "and per-image C instead of 'c-stack'; read the stack methods' rows and the predicted "
+        "drift left with care (tc_sun_both_sides = 1)",
+        UserWarning,
+        stacklevel=3,
+    )
+    return 1
