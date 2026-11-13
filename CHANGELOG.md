@@ -69,6 +69,9 @@ uses [Semantic Versioning](https://semver.org/).
   each point's illumination-only series passed through the method, and the median remaining trend
   with the share of points at 0.001 per year or more. One Landsat 8-9 tile (269 images, 5,761
   points): 0.58 EECU-hours, 113 MB CSV.
+- Example notebooks (`examples/`): Kalam (Landsat 5 orbit drift, stack models, NIRv drift map,
+  method comparison) and Tapantí (the sun on both sides of the tile near the equator), with their
+  Earth Engine cost, progress bars and resumable exports.
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
 ### Changed
