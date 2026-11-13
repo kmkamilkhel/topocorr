@@ -34,10 +34,11 @@ The [example notebooks](examples.md) have their own environment file with eofigs
 ## Earth Engine use
 
 Earth Engine's noncommercial tiers meter compute in EECU-hours. topocorr keeps heavy work in batch
-exports and does the rest locally. Measured on a 24 km Landsat tile:
+exports and does the rest locally. Measured on a 24 km Landsat tile (ranges: several runs; Earth
+Engine's use of the same export varies between runs):
 
 | Step | EECU-hours |
 |---|---|
-| `diagnose` map, Landsat 5 (156-172 images) | 2.4-3.9 |
+| `diagnose` map, Landsat 5 (156-172 images) | 1.7-3.9 |
 | `diagnose` map, Landsat 8-9 (269 images) | 6.1 |
-| `compare_export`, Landsat 8-9 (5,761 points x 269 images; CSV 113 MB) | 0.58 |
+| `compare_export`, Landsat 8-9 (5,761 points x 269 images; CSV 113 MB) | 0.6-2.4 |

@@ -1,9 +1,17 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using these metadata."
-title: "topocorr: terrain illumination correction and illumination-artefact tests for Landsat and Sentinel-2 time series"
+title: "topocorr: terrain illumination correction and illumination-artefact tests for Landsat time series in Google Earth Engine"
 type: software
 version: 0.1.0
 date-released: "2026-11-13"
+doi: 10.5281/zenodo.24195254
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24195254
+    description: "Concept DOI: all versions"
+  - type: doi
+    value: 10.5281/zenodo.24195255
+    description: "Version 0.1.0"
 abstract: >-
   topocorr computes the local solar illumination of every Landsat 5-9 Collection 2 Level 2 and
   Sentinel-2 L2A acquisition in Google Earth Engine from a DEM and the image's sun angles, flags

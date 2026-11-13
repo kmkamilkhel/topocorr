@@ -17,8 +17,8 @@ topocorr.compare_export(oli, model, region=aoi, n_points=500, manifest="swat_com
 table = topocorr.compare("swat_compare.json")  # one row per method
 ```
 
-For one 24 km Landsat 8-9 tile (269 images, 5,761 points) the export used 0.58 EECU-hours and wrote
-a 113 MB CSV; `compare` then took about 30 s.
+For one 24 km Landsat 8-9 tile (269 images, 5,761 points) the export used 0.6-2.4 EECU-hours in
+two runs (Earth Engine's use varies between runs of the same export) and wrote a 113 MB CSV; `compare` then took about 30 s.
 
 ## Measures
 
