@@ -22,7 +22,8 @@ Two steps, so that the Earth Engine cost does not grow with the number of method
      F, the drift series of :func:`topocorr.diagnose`) is passed through the method, and the
      trend that remains in the deseasonalised index is taken (Theil-Sen, index units per year);
      the median of its absolute value over the points. For ``"none"`` this is the drift trend
-     itself; ``"c-stack"`` leaves none by construction;
+     itself; ``"c-stack"`` leaves none where the model's c is usable (a band with c < 0 is left
+     uncorrected);
    * ``predicted_drift_high``: share of points whose predicted drift left reaches the trend
      threshold (0.001 per year).
 
