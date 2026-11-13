@@ -108,6 +108,8 @@ jobs:
       - run: pip install build twine
       - run: python -m build
       - run: twine check --strict dist/*
+      - name: Check the contents of the wheel and the source distribution
+        run: python .github/scripts/check_dist.py dist
       - name: Install the wheel in a clean environment
         run: |
           python -m venv /tmp/wheel-env
