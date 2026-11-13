@@ -6,6 +6,13 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Citation: Zenodo DOIs (all versions 10.5281/zenodo.24195254; version 0.1.0
+  10.5281/zenodo.24195255) in CITATION.cff, README and the documentation; title as on Zenodo.
+- Documented Earth Engine use as measured ranges: `diagnose` map, Landsat 5, 1.7-3.9 EECU-hours;
+  `compare_export`, Landsat 8-9, 0.6-2.4 EECU-hours (the same export varies between runs).
+
 ## [0.1.0] - 2026-11-13
 
 ### Added

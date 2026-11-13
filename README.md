@@ -2,6 +2,8 @@
 
 [![Tests](https://github.com/kmkamilkhel/topocorr/actions/workflows/tests.yml/badge.svg)](https://github.com/kmkamilkhel/topocorr/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/topocorr.svg)](https://pypi.org/project/topocorr/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24195254.svg)](https://doi.org/10.5281/zenodo.24195254)
 
 **Is a mountain trend real, or is it the sun?** topocorr tests Landsat and Sentinel-2 time series
 for illumination artefacts on slopes and corrects them consistently through time, in Google Earth
@@ -61,7 +63,8 @@ table = topocorr.compare("swat_compare.json")  # one row per method
 ```
 
 For one 24 km Landsat 8-9 tile in the Hindu Kush (269 images, 500 points per stratum, 5,761
-points) the export used 0.58 EECU-hours and wrote a 113 MB CSV; `compare` then took about 30 s.
+points) the export used 0.6-2.4 EECU-hours in two runs (Earth Engine's use varies between runs of
+the same export) and wrote a 113 MB CSV; `compare` then took about 30 s.
 The table gives, per method, the remaining dependence of NIR on illumination, the sunlit-shaded
 gap, temporal noise, the share of values out of range and the **predicted drift left (from the
 stack model)**: each point's illumination-only series passed through the method, and the trend that
@@ -130,6 +133,15 @@ topocorr needs a Google Earth Engine account and a Cloud project registered for 
 - Roy, D. P., Li, Z., Zhang, H. K., Huang, H. (2020). A conterminous United States analysis of the
   impact of Landsat 5 orbit drift on the temporal consistency of Landsat 5 Thematic Mapper data.
   *Remote Sensing of Environment* 240, 111701. https://doi.org/10.1016/j.rse.2020.111701
+
+## Citation
+
+Mehmood, K. (2026). topocorr: terrain illumination correction and illumination-artefact tests for
+Landsat time series in Google Earth Engine (v0.1.0). Zenodo.
+https://doi.org/10.5281/zenodo.24195255
+
+Please cite the version you used; https://doi.org/10.5281/zenodo.24195254 refers to all versions
+and resolves to the latest. GitHub's "Cite this repository" button reads `CITATION.cff`.
 
 ## License
 

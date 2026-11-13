@@ -1,11 +1,12 @@
 # Citation
 
-topocorr will be archived on Zenodo with its first release, which gives it a DOI for all versions
-and one for each version. Until then, please cite the repository:
+Please cite the version you used. Version 0.1.0:
 
 > Mehmood, K. (2026). *topocorr: terrain illumination correction and illumination-artefact tests
-> for Landsat and Sentinel-2 time series* [Computer software].
-> <https://github.com/kmkamilkhel/topocorr>
+> for Landsat time series in Google Earth Engine* (v0.1.0) [Computer software]. Zenodo.
+> <https://doi.org/10.5281/zenodo.24195255>
+
+All versions: <https://doi.org/10.5281/zenodo.24195254> (resolves to the latest version).
 
 The citation metadata are in
 [CITATION.cff](https://github.com/kmkamilkhel/topocorr/blob/main/CITATION.cff); GitHub's "Cite this
