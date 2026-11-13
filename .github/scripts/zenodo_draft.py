@@ -134,6 +134,19 @@ def put_metadata(token: str, draft: dict, md: dict) -> dict:
         return call("PUT", url, token, body={"metadata": {**md, "license": "mit-license"}})
 
 
+def read_token() -> str | None:
+    """Return ZENODO_TOKEN without surrounding whitespace or a "Bearer " prefix (never printed)."""
+    token = os.environ.get("ZENODO_TOKEN", "").strip()
+    token = token.removeprefix("Bearer ").strip()
+    if not token:
+        print("ZENODO_TOKEN is not set")
+        return None
+    if any(ch.isspace() for ch in token) or not token.isprintable():
+        print("ZENODO_TOKEN has a space or line break inside; save the bare token as the secret")
+        return None
+    return token
+
+
 def main() -> int:
     """Create or update the draft and print its link."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -155,9 +168,8 @@ def main() -> int:
         print(f"file: {args.archive.name} ({args.archive.stat().st_size} bytes)")
         print(json.dumps(md, indent=1, ensure_ascii=False))
         return 0
-    token = os.environ.get("ZENODO_TOKEN")
+    token = read_token()
     if not token:
-        print("ZENODO_TOKEN is not set")
         return 1
     draft = find_draft(token, concept, md)
     print("reusing draft" if draft else "creating draft", draft["id"] if draft else "")

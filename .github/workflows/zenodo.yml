@@ -28,9 +28,9 @@ jobs:
     env:
       TAG: ${{ inputs.tag }}
     steps:
+      # The script comes from the workflow's own ref (the tag when called by release.yml, the
+      # chosen branch when run by hand); the metadata come from the tag's CITATION.cff.
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.tag }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -40,7 +40,9 @@ jobs:
           name="${GITHUB_REPOSITORY#*/}-${TAG}.zip"
           curl -sSfL -o "$name" "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.zip"
           echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+          cff=$(unzip -Z1 "$name" | grep -m1 -E '^[^/]+/CITATION\.cff$')
+          unzip -p "$name" "$cff" > tag-CITATION.cff
       - name: Create the Zenodo draft (not published)
         env:
           ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
-        run: python .github/scripts/zenodo_draft.py --tag "$TAG" --archive "$ARCHIVE"
+        run: python .github/scripts/zenodo_draft.py --tag "$TAG" --archive "$ARCHIVE" --cff tag-CITATION.cff
