@@ -40,3 +40,10 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  zenodo:
+    needs: publish
+    uses: ./.github/workflows/zenodo.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit
