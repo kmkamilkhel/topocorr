@@ -86,3 +86,4 @@ convention = "numpy"
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]
 ".github/*" = ["D"]
+"examples/*" = ["D"]

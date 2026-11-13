@@ -1,0 +1,21 @@
+# Environment for the example notebooks:
+#   conda env create -f examples/environment.yml
+#   conda activate topocorr-examples
+name: topocorr-examples
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - earthengine-api
+  - numpy
+  - xarray
+  - rioxarray
+  - cartopy
+  - geopandas
+  - matplotlib
+  - tqdm
+  - ipykernel
+  - pip
+  - pip:
+      - eofigs==0.2.0
+      - git+https://github.com/kmkamilkhel/topocorr
