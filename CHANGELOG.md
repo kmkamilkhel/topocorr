@@ -72,6 +72,8 @@ uses [Semantic Versioning](https://semver.org/).
 - Example notebooks (`examples/`): Kalam (Landsat 5 orbit drift, stack models, NIRv drift map,
   method comparison) and Tapantí (the sun on both sides of the tile near the equator), with their
   Earth Engine cost, progress bars and resumable exports.
+- Documentation site (mkdocs-material, GitHub Pages): concepts, validation summary, gallery
+  (maps from the development version, labelled), example notebooks and API reference.
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
 ### Changed

@@ -1,0 +1,66 @@
+site_name: topocorr
+site_description: Terrain illumination correction and illumination-artefact tests for Landsat time series in Google Earth Engine.
+site_url: https://kmkamilkhel.github.io/topocorr/
+repo_url: https://github.com/kmkamilkhel/topocorr
+repo_name: kmkamilkhel/topocorr
+copyright: Copyright &copy; 2026 Kaleem Mehmood
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+# the gallery build script is not part of the site
+exclude_docs: |
+  scripts/
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Concepts:
+      - Illumination and corrections: illumination.md
+      - The stack model: stack-model.md
+      - Drift artefact and diagnose: drift.md
+      - Near the equator: equator.md
+      - Comparing methods: compare.md
+  - Validation: validation.md
+  - Gallery: gallery.md
+  - Example notebooks: examples.md
+  - API reference: api.md
+  - Changelog: changelog.md
+  - Citation: citation.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      check_paths: true
