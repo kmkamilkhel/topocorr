@@ -93,9 +93,9 @@ def test_fit_recovers_the_known_curves(model):
     assert any(model.used["nir"][code] == code for code in model.codes)
 
 
-@pytest.mark.parametrize("method", ["scsc-stack", "se-stack"])
+@pytest.mark.parametrize("method", ["scsc-stack", "c-stack", "se-stack"])
 def test_stack_corrections_have_their_closed_form(model, stack_images, method):
-    """ρ = m (cos i + c): SCS+C gives m (cos s cos θz + c), statistical-empirical m (cos θz + c)."""
+    """ρ = m (cos i + c): SCS+C gives m (cos s cos θz + c), C and SE give m (cos θz + c)."""
     import ee
 
     import topocorr
@@ -118,10 +118,15 @@ def test_stack_corrections_have_their_closed_form(model, stack_images, method):
     excluded = (flag & topocorr.flags.EXCLUDED) != 0
     np.testing.assert_array_equal(d["tc_corrected"][IN][excluded], 0)
     for b, band in enumerate(BANDS):
-        if method == "scsc-stack":
+        if method in ("scsc-stack", "c-stack"):
             code = np.where(slope < 25, 11, np.where(slope < 40, 12, 13))
             c = np.vectorize(lambda k, b=band: model.c(b, int(k), zenith))(code)
-            expected = m * (np.cos(np.radians(slope)) * np.cos(np.radians(zenith)) + c)
+            top = np.cos(np.radians(zenith))
+            if method == "scsc-stack":
+                top = np.cos(np.radians(slope)) * top
+            # ρ (top + c_curve) / (cos i + c_curve) with ρ = m (cos i + c): exact when c_curve = c
+            ratio = (d["cos_i"][IN] + _c(b, zenith)) / (d["cos_i"][IN] + c)
+            expected = m * (top + c) * ratio
             tol = 2e-3 * m  # the curve, not the image's own c
         else:
             expected = np.full(slope.shape, m * (np.cos(np.radians(zenith)) + _c(b, zenith)))

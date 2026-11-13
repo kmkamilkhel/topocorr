@@ -9,6 +9,8 @@ Image by image:
 With a stack model from :func:`topocorr.fit`, per stratum (land cover x slope class):
 
 ``scsc-stack``  SCS+C with ``c = c(θz)`` from the model, the same curve for every image
+``c-stack``     C correction with ``c = c(θz)`` from the model: normalised to flat ground, so a
+                change of sun angle between years leaves no trend if the model is right
 ``se-stack``    statistical-empirical (Teillet et al. 1982), ρ − m_t (cos i − cos θz), with the
                 image's own slope m_t from the model's first stage (same sample and settings),
                 referred to a horizontal surface (see below)
@@ -49,7 +51,7 @@ from .terrain import TERRAIN_SCALE, dem_name, terrain
 
 METHODS = ("cosine", "c", "scsc")
 """Methods available without a fitted stack model."""
-MODEL_METHODS = ("scsc-stack", "se-stack")
+MODEL_METHODS = ("scsc-stack", "c-stack", "se-stack")
 """Methods that need a stack model from :func:`topocorr.fit`."""
 DEFAULT_METHOD = "scsc-stack"
 """Method used when ``method`` is not given (a stack model is then needed)."""
@@ -60,6 +62,9 @@ FIT_MASKS = {"worldcover-trees": 10}
 """Named fit masks: WorldCover class kept for the fit."""
 
 _DEG = math.pi / 180.0
+_PER_IMAGE_FALLBACK = {"scsc-stack": "scsc", "c-stack": "c"}
+_LABELS = {"scsc": "SCS+C", "c": "C"}
+"""Per-image method used instead of a curve method when the sun is on both sides of the tile."""
 
 
 def correct(
@@ -84,16 +89,17 @@ def correct(
     images : ee.Image or ee.ImageCollection
         Images prepared by :func:`topocorr.collection`.
     model : topocorr.StackModel, optional
-        A stack model from :func:`topocorr.fit`, needed by ``"scsc-stack"`` and ``"se-stack"``
-        (not used by the per-image methods). Its strata, slope classes, steep threshold, sample
-        size and seed are used; ``min_slope``, ``steep``, ``sample_size``, ``min_pixels``,
-        ``fit_mask`` and ``seed`` apply to the per-image methods only.
-    method : {"scsc-stack", "se-stack", "scsc", "c", "cosine"}, optional
+        A stack model from :func:`topocorr.fit`, needed by ``"scsc-stack"``, ``"c-stack"`` and
+        ``"se-stack"`` (not used by the per-image methods). Its strata, slope classes, steep
+        threshold, sample size and seed are used; ``min_slope``, ``steep``, ``sample_size``,
+        ``min_pixels``, ``fit_mask`` and ``seed`` apply to the per-image methods only.
+    method : {"scsc-stack", "c-stack", "se-stack", "scsc", "c", "cosine"}, optional
         Correction method. By default ``"scsc-stack"``, which needs ``model``. When the model's
         images have the sun north of the tile in some images and south of it in others (near the
         equator; :attr:`topocorr.StackModel.sun_both_sides`), ``"scsc-stack"`` warns and uses
-        per-image SCS+C (``"scsc"``) instead: one curve c(zenith) cannot follow per-image c
-        there and can bias trends on east- and west-facing slopes.
+        per-image SCS+C (``"scsc"``) instead, and ``"c-stack"`` per-image C (``"c"``): one curve
+        c(zenith) cannot follow per-image c there and can bias trends on east- and west-facing
+        slopes.
     dem : str or ee.Image
         DEM name, image asset id, or an elevation image in metres; for the stack methods, the
         DEM the model was fitted with.
@@ -128,7 +134,8 @@ def correct(
         ``tc_method``, ``tc_dem`` and, for ``"c"`` and ``"scsc"``, ``tc_fit_ok`` (all bands
         fitted), ``tc_n_sample`` and per band ``tc_c_<band>``, ``tc_m_<band>``,
         ``tc_fit_ok_<band>``. The stack methods add ``tc_model`` (the model id) and per band
-        ``tc_c_<band>`` (``scsc-stack``: c per stratum name) or ``tc_m_<band>`` (``se-stack``:
+        ``tc_c_<band>`` (``scsc-stack``, ``c-stack``: c per stratum name) or ``tc_m_<band>``
+        (``se-stack``:
         m_t per stratum code; -1 where the fit was not usable).
 
     Examples
@@ -143,7 +150,7 @@ def correct(
         choices = ", ".join([*METHODS, *MODEL_METHODS])
         raise ValueError(f"unknown method {method!r}; choose one of {choices}")
     if model is not None:
-        raise ValueError("model is used only by the stack methods: scsc-stack and se-stack")
+        raise ValueError("model is used only by the stack methods: " + ", ".join(MODEL_METHODS))
     _check_steep(steep)
     _check_shadow_search(shadow_search)
     if not 0 <= float(min_slope) < 90:
@@ -184,15 +191,16 @@ def _choose_method(method: str | None, model: object | None) -> tuple[str, objec
                 "without one, choose a per-image method: scsc, c or cosine"
             )
         method = DEFAULT_METHOD
-    if method == "scsc-stack" and isinstance(model, StackModel) and model.sun_both_sides:
+    fallback = _PER_IMAGE_FALLBACK.get(method)
+    if fallback and isinstance(model, StackModel) and model.sun_both_sides:
         warnings.warn(
             "the sun is north of the tile in some of the model's images and south of it in others "
             "(near the equator); one c(zenith) curve cannot follow per-image c there, so per-image "
-            "SCS+C (method 'scsc') is used instead of 'scsc-stack'",
+            f"{_LABELS[fallback]} (method {fallback!r}) is used instead of {method!r}",
             UserWarning,
             stacklevel=3,
         )
-        return "scsc", None
+        return fallback, None
     return method, model
 
 
@@ -412,8 +420,11 @@ def _correct_stack(
     parts = []
     done = []
 
-    if method == "scsc-stack":
-        numerator = ter.select("slope").multiply(_DEG).cos().multiply(cos_z)
+    if method in ("scsc-stack", "c-stack"):
+        if method == "scsc-stack":
+            numerator = ter.select("slope").multiply(_DEG).cos().multiply(cos_z)
+        else:
+            numerator = ee.Image.constant(cos_z)
         for band in BANDS:
             codes = [code for code in model.codes if model.used[band][code] is not None]
             values = [_curve_value(model.curve(band, code), zenith) for code in codes]

@@ -218,6 +218,8 @@ def test_correct_defaults_to_scsc_stack_and_falls_back_near_the_equator():
     with pytest.warns(UserWarning, match="per-image SCS"):
         assert _choose_method("scsc-stack", model) == ("scsc", None)
     assert _choose_method("se-stack", model) == ("se-stack", model)  # per-image m: not affected
+    with pytest.warns(UserWarning, match=r"per-image C \(method 'c'\)"):
+        assert _choose_method("c-stack", model) == ("c", None)
 
 
 def test_diagnose_warns_and_records_when_the_sun_is_on_both_sides():
