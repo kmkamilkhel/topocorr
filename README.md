@@ -5,9 +5,9 @@
 [![PyPI](https://img.shields.io/pypi/v/topocorr.svg)](https://pypi.org/project/topocorr/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24195254.svg)](https://doi.org/10.5281/zenodo.24195254)
 
-**Is a mountain trend real, or is it the sun?** topocorr tests Landsat and Sentinel-2 time series
-for illumination artefacts on slopes and corrects them consistently through time, in Google Earth
-Engine.
+**Is a mountain trend real, or is it the sun?** topocorr tests Landsat 5-9 time series for
+illumination artefacts on slopes and corrects them consistently through time, in Google Earth
+Engine. Sentinel-2 L2A is included but experimental until version 0.2.
 
 On steep terrain the reflectance of a pixel depends on how directly the sun lights it. That
 illumination changes between acquisitions with the season, with orbit drift (Landsat 5 and 7) and

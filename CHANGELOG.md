@@ -8,6 +8,9 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- README and package description: Landsat 5-9 validated; Sentinel-2 L2A included but experimental
+  until 0.2.
+
 - Citation: Zenodo DOIs (all versions 10.5281/zenodo.24195254; version 0.1.0
   10.5281/zenodo.24195255) in CITATION.cff, README and the documentation; title as on Zenodo.
 - Documented Earth Engine use as measured ranges: `diagnose` map, Landsat 5, 1.7-3.9 EECU-hours;

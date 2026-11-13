@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "topocorr"
 dynamic = ["version"]
-description = "Terrain illumination correction and illumination-artefact tests for Landsat and Sentinel-2 time series in Google Earth Engine."
+description = "Terrain illumination correction and illumination-artefact tests for Landsat time series in Google Earth Engine."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
