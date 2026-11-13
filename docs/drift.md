@@ -36,9 +36,8 @@ a real greening is seen smaller than on flat ground.
 
 ## Which index
 
-The drift artefact is strongest in NIR and NIR-based indices. NDVI cancels part of it: on the test
-tiles the relative artefact in NIRv and EVI was 5 to 40 times larger than in NDVI, and in NDVI it
-is often near the noise level, so an NDVI "medium" can still be a real artefact. **Use NIRv or EVI
+The drift artefact is strongest in NIR and NIR-based indices. NDVI cancels part of it, and in
+NDVI it is often near the noise level, so an NDVI "medium" can still be a real artefact. **Use NIRv or EVI
 for drift checks** (`index="nirv"`).
 
 ## Example
