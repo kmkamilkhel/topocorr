@@ -36,7 +36,7 @@ class ZenodoError(RuntimeError):
 
 
 def call(method: str, url: str, token: str | None = None, body=None, data: bytes | None = None):
-    """One API request; returns the decoded JSON (or {})."""
+    """Send one API request and return the decoded JSON (or {})."""
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -55,13 +55,13 @@ def call(method: str, url: str, token: str | None = None, body=None, data: bytes
 
 
 def concept_id(cff: dict) -> str | None:
-    """Zenodo concept record id from the ``doi`` of CITATION.cff, if there is one."""
+    """Return the Zenodo concept record id from the ``doi`` of CITATION.cff, if any."""
     match = re.fullmatch(r"10\.5281/zenodo\.(\d+)", str(cff.get("doi", "")).strip())
     return match.group(1) if match else None
 
 
 def metadata(cff: dict, tag: str, repo: str) -> dict:
-    """Zenodo deposit metadata from CITATION.cff, as the GitHub integration wrote it."""
+    """Build the deposit metadata from CITATION.cff, as the GitHub integration wrote it."""
     creators = []
     for a in cff["authors"]:
         c = {"name": f"{a['family-names']}, {a['given-names']}"}
@@ -95,12 +95,12 @@ def metadata(cff: dict, tag: str, repo: str) -> dict:
 
 
 def latest_version(concept: str) -> dict:
-    """The latest published record of a concept (public API; follows the redirect)."""
+    """Return the latest published record of a concept (public API; follows the redirect)."""
     return call("GET", f"{API}/records/{concept}/versions/latest")
 
 
 def find_draft(token: str, concept: str | None, md: dict) -> dict | None:
-    """An unpublished draft to reuse: same concept, or same title and version."""
+    """Return an unpublished draft to reuse: same concept, or same title and version."""
     drafts = call("GET", f"{API}/deposit/depositions?status=draft&size=100", token)
     for d in drafts:
         if d.get("submitted"):
@@ -114,7 +114,7 @@ def find_draft(token: str, concept: str | None, md: dict) -> dict | None:
 
 
 def new_draft(token: str, concept: str | None) -> dict:
-    """A new version of the concept, or a new concept."""
+    """Create a new version of the concept, or a new concept."""
     if concept is None:
         return call("POST", f"{API}/deposit/depositions", token, body={})
     latest = latest_version(concept)
