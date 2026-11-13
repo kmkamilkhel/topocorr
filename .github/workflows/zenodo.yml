@@ -1,0 +1,46 @@
+name: Zenodo draft
+
+# Creates the Zenodo record of a release as an unpublished DRAFT from CITATION.cff and the
+# release source archive (.github/scripts/zenodo_draft.py). Called by release.yml after the
+# PyPI upload; can also be run by hand for an existing tag. The draft is reviewed and
+# published on Zenodo by the owner.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      ZENODO_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        type: string
+        required: true
+
+jobs:
+  draft:
+    name: zenodo draft
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install pyyaml
+      - name: Download the release source archive
+        run: |
+          name="${GITHUB_REPOSITORY#*/}-${TAG}.zip"
+          curl -sSfL -o "$name" "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.zip"
+          echo "ARCHIVE=$name" >> "$GITHUB_ENV"
+      - name: Create the Zenodo draft (not published)
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+        run: python .github/scripts/zenodo_draft.py --tag "$TAG" --archive "$ARCHIVE"
