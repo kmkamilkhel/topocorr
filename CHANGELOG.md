@@ -55,6 +55,20 @@ uses [Semantic Versioning](https://semver.org/).
 - `shadow_search` (pixels) for `masks()`, `correct()`, `fit()` (stored in the model) and
   `diagnose()`, and `masking.shadow_search(region, max_zenith)`: the longest shadow the terrain can
   cast, from the relief (region grown by that length) times tan(largest solar zenith).
+- `correct(..., model, method="c-stack")`: the C correction with c from the stack model,
+  normalised to flat ground. Unlike SCS+C, which keeps the factor (cos s cos θz + c) / (cos θz + c)
+  on slopes, it leaves no trend from a change of sun angle when the model is right.
+- `compare_export()` and `compare()`: methods compared on one stack in two steps. `compare_export`
+  draws fixed points (`n_points` per stratum of the stack model, seeded) and starts two
+  `Export.table` tasks (every image at the points: six bands, sun angles, `tc_flag`; and per point:
+  stratum, slope, aspect, elevation, forest loss), with a JSON manifest and the model. `compare`
+  reads the downloaded tables and applies every method in NumPy, with no Earth Engine calls:
+  `none`, `cosine`, `c`, `scsc`, `scsc-stack`, `c-stack`, `se-stack`. Per method: the median
+  correlation of NIR with cos i, the sunlit-shaded gap, temporal noise of NIR and an index (NIRv by
+  default), the share of values out of range, and the predicted drift left (from the stack model):
+  each point's illumination-only series passed through the method, and the median remaining trend
+  with the share of points at 0.001 per year or more. One Landsat 8-9 tile (269 images, 5,761
+  points): 0.58 EECU-hours, 113 MB CSV.
 - Package scaffold: packaging, tests on Linux, Windows and macOS, citation metadata.
 
 ### Changed
@@ -67,6 +81,7 @@ uses [Semantic Versioning](https://semver.org/).
   two sides and drifts with Landsat 5's overpass, which one c(zenith) curve cannot follow; on test
   tiles at 4 and 10 degrees latitude it turned a west-minus-east difference of Landsat 5 NIR trends
   negative. `stack.sun_sides()` counts the images per side.
+- `correct(..., method="c-stack")` falls back to per-image C in the same case.
 - `diagnose()` gives the same warning for such a model and records it in the property
   `tc_sun_both_sides` (1, else 0); its numbers are unchanged.
 - `diagnose()` total illumination effect: the observed trend minus the trend of the

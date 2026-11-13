@@ -38,7 +38,7 @@ corrected = topocorr.correct(oli, method="scsc", region=aoi)
 model = topocorr.fit(oli, strata="worldcover-density", region=aoi, cache="swat_l8_fit.json")
 print(model.summary())
 model.to_json("swat_l8_model.json")
-stack_corrected = topocorr.correct(oli, model)  # scsc-stack (default); or method="se-stack"
+stack_corrected = topocorr.correct(oli, model)  # scsc-stack (default); or "c-stack", "se-stack"
 
 flags = topocorr.masks(oli)  # cos_i, cast_shadow, self_shadow, low_illumination, steep
 
@@ -48,6 +48,25 @@ ndvi = topocorr.normalized_difference(stack_corrected, "nir", "red", "ndvi")
 # Is the NDVI trend real or illumination? Drift artefact, total effect and risk class per pixel
 risk = topocorr.diagnose(oli, model, index="ndvi")
 ```
+
+**Comparing methods.** `compare` runs in two steps, so the Earth Engine cost does not grow with
+the number of methods: one batch export of the raw data at fixed points, then every method and
+measure locally in NumPy.
+
+```python
+# Step 1 (Earth Engine): two Export.table tasks to the Drive folder "topocorr_exports"
+topocorr.compare_export(oli, model, region=aoi, n_points=500, manifest="swat_compare.json")
+# Step 2 (local): when both tasks are done, download the two CSV files next to the manifest
+table = topocorr.compare("swat_compare.json")  # one row per method
+```
+
+For one 24 km Landsat 8-9 tile in the Hindu Kush (269 images, 500 points per stratum, 5,761
+points) the export used 0.58 EECU-hours and wrote a 113 MB CSV; `compare` then took about 30 s.
+The table gives, per method, the remaining dependence of NIR on illumination, the sunlit-shaded
+gap, temporal noise, the share of values out of range and the **predicted drift left (from the
+stack model)**: each point's illumination-only series passed through the method, and the trend that
+remains. It assumes that the stack model is right. The data-based checks are `diagnose` and the
+Landsat 5 test in the documentation.
 
 **Ratio indices.** A band whose fit is not usable is left unchanged (in winter forest this is often
 red), so a corrected image can hold corrected and uncorrected bands side by side. The band
@@ -71,7 +90,8 @@ the stack correction removes it.
 
 **Near the equator.** Where the sun is north of the tile in some images and south of it in others
 (`model.sun_both_sides`), one c(zenith) curve cannot follow per-image c, and `scsc-stack` would
-bias trends on east- and west-facing slopes. `correct` then warns and uses per-image SCS+C. `diagnose`
+bias trends on east- and west-facing slopes. `correct` then warns and uses per-image SCS+C
+(per-image C for `c-stack`). `diagnose`
 warns too and sets the property `tc_sun_both_sides`.
 
 Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default DEM: Copernicus GLO-30.
@@ -79,8 +99,8 @@ Sensors: Landsat 5, 7, 8 and 9 Collection 2 Level 2 and Sentinel-2 L2A. Default 
 ## Status
 
 In development; no release yet. Available: `collection`, `masks`, `fit` (stack model),
-`correct` (cosine, C, SCS+C per image; SCS+C and statistical-empirical with the stack model) and
-`diagnose`. The first release (0.1) covers Landsat 5, 7, 8 and 9 and adds `compare`; Sentinel-2
+`correct` (cosine, C, SCS+C per image; SCS+C, C and statistical-empirical with the stack model),
+`diagnose` and `compare`. The first release (0.1) covers Landsat 5, 7, 8 and 9; Sentinel-2
 harmonisation and break checks follow in 0.2.
 
 ## Installation

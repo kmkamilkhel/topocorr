@@ -18,6 +18,7 @@ OVERALL = 80.0
 PER_MODULE = 90.0
 EARTH_ENGINE_MODULES = {
     "artefact.py",
+    "comparison_export.py",
     "correction.py",
     "illumination.py",
     "masking.py",

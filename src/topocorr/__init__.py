@@ -12,6 +12,8 @@ standard terrain corrections.
 
 from . import flags
 from .artefact import diagnose
+from .comparison import compare, load_tables
+from .comparison_export import compare_export
 from .correction import correct, normalized_difference
 from .masking import masks
 from .model import fit
@@ -24,11 +26,14 @@ __all__ = [
     "StackModel",
     "__version__",
     "collection",
+    "compare",
+    "compare_export",
     "correct",
     "diagnose",
     "fit",
     "flags",
     "load_model",
+    "load_tables",
     "masks",
     "normalized_difference",
 ]
