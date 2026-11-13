@@ -21,6 +21,8 @@ When it is true:
 - `correct(images, model)` warns and uses per-image SCS+C instead of `scsc-stack`, and per-image C
   instead of `c-stack`; `se-stack` (per-image slopes) is not affected;
 - `diagnose` warns and records `tc_sun_both_sides = 1` on its output; its drift estimate rests on the
-  one curve, so read it with care there.
+  one curve, so read it with care there;
+- `compare` warns and records `tc_sun_both_sides = 1` in its table; it applies every method as named,
+  so compare the stack methods with the per-image ones there.
 
 The [Tapantí notebook](examples.md) (Costa Rica, 9.8° N) shows the case step by step.

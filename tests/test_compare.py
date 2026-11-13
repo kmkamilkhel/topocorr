@@ -155,3 +155,18 @@ def test_compare_needs_a_model():
 
 def test_methods_list():
     assert set(METHODS) == {"none", "cosine", "c", "scsc", "scsc-stack", "c-stack", "se-stack"}
+
+
+def test_near_the_equator_compare_warns_and_records_it():
+    t = _tables()
+    for im in t["model"].images[:10]:
+        im["azimuth"] = 60.0  # the sun north of the tile in a quarter of the model's images
+    assert t["model"].sun_both_sides
+    with pytest.warns(UserWarning, match="tc_sun_both_sides = 1"):
+        rows = _rows(topocorr.compare(t, methods=["none", "scsc-stack"]))
+    assert {r["tc_sun_both_sides"] for r in rows.values()} == {1}
+
+
+def test_away_from_the_equator_compare_records_zero():
+    rows = _rows(topocorr.compare(_tables(), methods=["none"]))  # warnings are errors in tests
+    assert rows["none"]["tc_sun_both_sides"] == 0

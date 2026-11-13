@@ -87,6 +87,8 @@ uses [Semantic Versioning](https://semver.org/).
   tiles at 4 and 10 degrees latitude it turned a west-minus-east difference of Landsat 5 NIR trends
   negative. `stack.sun_sides()` counts the images per side.
 - `correct(..., method="c-stack")` falls back to per-image C in the same case.
+- `compare()` gives the same warning in that case and records `tc_sun_both_sides` (1, else 0) in its
+  table; it applies every method as named.
 - `diagnose()` gives the same warning for such a model and records it in the property
   `tc_sun_both_sides` (1, else 0); its numbers are unchanged.
 - `diagnose()` total illumination effect: the observed trend minus the trend of the
